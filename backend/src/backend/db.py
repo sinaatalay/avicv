@@ -52,7 +52,10 @@ CREATE INDEX IF NOT EXISTS matches_by_score ON matches (resume_id, score DESC);
 def connect(path: Path, *, readonly: bool = False) -> sqlite3.Connection:
     """Open a connection with rows as `sqlite3.Row`. Read-only connections fail if the file is missing."""
     if readonly:
-        conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+        # Not mode=ro: a reader of a WAL database must be able to recreate the -shm and -wal files,
+        # which SQLite deletes when the last connection closes. query_only blocks every write instead.
+        conn = sqlite3.connect(f"{path.as_uri()}?mode=rw", uri=True)
+        conn.execute("PRAGMA query_only = ON")
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(path)

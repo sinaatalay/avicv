@@ -2,7 +2,7 @@
 	import type { Match } from './contracts.ts';
 	import type { TailorStates } from './tailored-cvs.ts';
 	import JobActions from './JobActions.svelte';
-	let { matches, tailoring, tailoringSeconds, onTailor }: { matches: Match[]; tailoring: TailorStates; tailoringSeconds?: number; onTailor: (jobKey: string) => void } = $props();
+	let { matches, tailoring, onTailor }: { matches: Match[]; tailoring: TailorStates; onTailor: (jobKey: string) => void } = $props();
 
 	function salary(match: Match) {
 		if (match.salary_min === null || !match.salary_currency) return null;
@@ -52,14 +52,14 @@
 					<p class="availability">This listing may no longer be available.</p>
 				{/if}
 			</div>
-			<JobActions title={match.title} company={match.company} {url} tailoring={tailoring[match.job_key]} {tailoringSeconds} onTailor={() => onTailor(match.job_key)} />
+			<JobActions title={match.title} company={match.company} {url} tailoring={tailoring[match.job_key]} onTailor={() => onTailor(match.job_key)} />
 		</li>
 	{/each}
 </ol>
 
 <style>
 	.matches { padding: 0; margin: 1rem 0 1.5rem; list-style: none; display: grid; gap: 0.85rem; }
-	.job-card { display: grid; grid-template-columns: minmax(0, 1fr) 10rem; align-items: center; gap: 1.5rem; padding: 1.5rem; border: 1px solid var(--color-border); border-radius: 0.8rem; }
+	.job-card { display: grid; grid-template-columns: minmax(0, 1fr) 12.5rem; align-items: center; gap: 1.5rem; padding: 1.5rem; border: 1px solid var(--color-border); border-radius: 0.8rem; }
 	.job-details { min-width: 0; }
 	h2 { margin: 0 0 0.35rem; font-size: 1.08rem; line-height: 1.4; font-weight: 650; }
 	p { margin: 0.2rem 0 0; font-size: 0.9rem; }

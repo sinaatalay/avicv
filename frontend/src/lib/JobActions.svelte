@@ -5,19 +5,17 @@
 	import FilePen from '@lucide/svelte/icons/file-pen';
 	import Download from '@lucide/svelte/icons/download';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
-	import Clock from '@lucide/svelte/icons/clock';
-	import { formatSavedTime } from './time-savings.ts';
 	import type { TailorJobState } from './tailored-cvs.ts';
-	let { title, company, url, tailoring, tailoringSeconds, onTailor }: {
+	let { title, company, url, tailoring, onTailor }: {
 		title: string; company: string | null; url: string | null;
-		tailoring?: TailorJobState; tailoringSeconds?: number; onTailor: () => void;
+		tailoring?: TailorJobState; onTailor: () => void;
 	} = $props();
 	let copied = $state(false);
 	let copyFailed = $state(false);
 	let copying = $state(false);
 	const label = $derived(`${title}${company ? ` at ${company}` : ''}`);
 	const isReady = $derived(tailoring?.artifact?.status === 'ready');
-	const tailorLabel = $derived(tailoring?.busy ? (isReady ? 'Downloading…' : 'Preparing CV…') : isReady ? 'Download CV' : 'Tailor CV');
+	const tailorLabel = $derived(tailoring?.busy ? (isReady ? 'Downloading…' : 'Preparing CV…') : isReady ? 'Download tailored CV' : 'Tailor CV');
 
 	$effect(() => {
 		if (!copied) return;
@@ -49,9 +47,6 @@
 			{#if tailoring?.busy}<LoaderCircle size={16} class="spinner" aria-hidden="true" />{:else if isReady}<Download size={16} aria-hidden="true" />{:else}<FilePen size={16} aria-hidden="true" />{/if}<span>{tailorLabel}</span>
 		</button>
 	</div>
-	{#if isReady && tailoringSeconds}
-		<p class="time-saved" role="status"><Clock size={12} aria-hidden="true" />Est. {formatSavedTime(tailoringSeconds)} saved</p>
-	{/if}
 	{#if copyFailed}
 		<label class="copy-fallback">Select and copy the link.
 			<input readonly value={url ?? ''} onfocus={(event) => event.currentTarget.select()} aria-label={`Application link for ${label}`} />
@@ -66,7 +61,7 @@
 <style>
 	.actions-area { width: 100%; min-width: 0; }
 	.job-actions { display: flex; flex-direction: column; align-items: stretch; gap: 0.45rem; }
-	button, .apply { display: inline-flex; justify-content: flex-start; align-items: center; gap: 0.6rem; width: 100%; min-height: 2.6rem; padding: 0.6rem 0.8rem; border: 1px solid var(--color-border); border-radius: 0.45rem; background: transparent; color: var(--color-text); font-size: 0.82rem; font-weight: 550; line-height: 1.4; text-decoration: none; cursor: pointer; white-space: nowrap; }
+	button, .apply { display: inline-flex; justify-content: flex-start; align-items: center; gap: 0.6rem; width: 100%; min-height: 2.6rem; padding: 0.6rem 0.8rem; border: 1px solid var(--color-border); border-radius: 0.45rem; background: transparent; color: var(--color-text); font-size: 0.82rem; font-weight: 550; line-height: 1.4; text-decoration: none; cursor: pointer; text-align: left; }
 	.job-actions :global(svg) { flex: none; }
 	:global(.job-actions .spinner) { animation: spin 1s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
@@ -78,7 +73,6 @@
 	button:disabled { opacity: 0.55; cursor: default; }
 	button:focus-visible, .apply:focus-visible, input:focus-visible { outline: 2px solid var(--color-text); outline-offset: 3px; }
 	.action-message, .copy-fallback { display: block; margin: 0.55rem 0 0; color: var(--color-muted); font-size: 0.78rem; }
-	.time-saved { display: flex; align-items: center; gap: 0.35rem; margin: 0.45rem 0 0; color: var(--color-muted); font-size: 0.72rem; }
 	.copy-fallback input { display: block; width: 100%; margin-top: 0.3rem; padding: 0.45rem; border: 1px solid var(--color-border); border-radius: 0.35rem; background: var(--color-bg); color: var(--color-text); font-size: 0.8rem; }
 	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 </style>

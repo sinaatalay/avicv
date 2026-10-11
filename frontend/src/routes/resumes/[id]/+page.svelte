@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
 	import * as v from 'valibot';
 	import type { JobTab, ResumeResults } from '#lib/contracts.ts';
@@ -9,8 +8,8 @@
 	import TimeSavings from '#lib/TimeSavings.svelte';
 	import { timeSavingsSchema, type TimeSavings as TimeSavingsValue } from '#lib/time-savings.ts';
 	import { createTailorManager, type TailorStates } from '#lib/tailored-cvs.ts';
-	import { cachedMatches, forgetResume, readHistory, saveVisit, type HistoryEntry, type ViewPreferences } from '#lib/resume-history.ts';
-	import { deleteResume, rematchResume, retryResume, watchResume } from '../../resumes.remote.ts';
+	import { cachedMatches, readHistory, saveVisit, type HistoryEntry, type ViewPreferences } from '#lib/resume-history.ts';
+	import { retryResume, watchResume } from '../../resumes.remote.ts';
 	import type { PageProps } from './$types';
 
 	let { params }: PageProps = $props();
@@ -23,7 +22,6 @@
 	let storageWarning = $state<string | null>(null);
 	let busy = $state(false);
 	let actionError = $state('');
-	let confirmDelete = $state(false);
 	let tailoring = $state<TailorStates>({});
 	let savings = $state<{ resumeId: string; value: TimeSavingsValue } | null>(null);
 	let tailorManager: ReturnType<typeof createTailorManager> | undefined;
@@ -85,7 +83,6 @@
 		limits = cached?.limits ?? { good: 20, other: 20 };
 		lastView = undefined;
 		storageWarning = saved.warning;
-		confirmDelete = false;
 		restoredId = id;
 		untrack(() => remember());
 	});
@@ -116,18 +113,11 @@
 		limits[category] += 20;
 		remember();
 	}
-	async function run(action: 'retry' | 'rematch' | 'delete') {
+	async function retry() {
 		busy = true;
 		actionError = '';
 		try {
-			if (action === 'delete') {
-				await deleteResume(params.id);
-				forgetResume(params.id);
-				await goto(resolve('/'));
-				return;
-			}
-			if (action === 'retry') await retryResume(params.id);
-			else await rematchResume({ id: params.id });
+			await retryResume(params.id);
 			await result.reconnect();
 		} catch { actionError = 'Something went wrong. Please try again.'; }
 		finally { busy = false; }
@@ -151,7 +141,7 @@
 {:else if r?.status === 'waiting_for_jobs'}
 	<p class="status" aria-live="polite">New jobs are on their way. We'll keep looking for you.</p>
 {:else if r?.status === 'failed' || r?.status === 'partial'}
-	<div class="notice" role="status"><p>{r.status === 'partial' ? 'Some jobs could not be checked.' : 'We couldn’t finish your search.'}</p><button disabled={busy} onclick={() => void run('retry')}>Try again</button></div>
+	<div class="notice" role="status"><p>{r.status === 'partial' ? 'Some jobs could not be checked.' : 'We couldn’t finish your search.'}</p><button disabled={busy} onclick={() => void retry()}>Try again</button></div>
 {/if}
 
 <div class="tabs" role="tablist" aria-label="Job matches">
@@ -168,7 +158,7 @@
 	{#if !data && !current && shown.length}<p class="saved-notice">Saved jobs. {result.error ? 'Check back when you’re online.' : 'Checking for updates…'}</p>{/if}
 	{#if current?.matches.results_are_previous}<p class="saved-notice">Here are your saved jobs while we look for new matches.</p>{/if}
 	{#if shown.length}
-		<MatchList matches={shown} {tailoring} tailoringSeconds={activeSavings?.cv_tailoring_seconds} onTailor={(jobKey) => void tailorManager?.request(jobKey)} />
+		<MatchList matches={shown} {tailoring} onTailor={(jobKey) => void tailorManager?.request(jobKey)} />
 		{#if current?.matches.has_more || (activeTotal !== undefined && shown.length < activeTotal && data)}
 			<button class="load-more" disabled={result.loading} onclick={loadMore}>{result.loading ? 'Loading…' : 'Show more jobs'}</button>
 		{/if}
@@ -183,19 +173,6 @@
 	{/if}
 </div>
 
-{#if r}
-	<details class="more-options">
-		<summary>More options</summary>
-		<div class="option-actions">
-			{#if terminal && r.cv}<button disabled={busy} onclick={() => void run('rematch')}>Look for new jobs</button>{/if}
-			{#if confirmDelete}
-				<p>Remove this CV and its saved jobs?</p>
-				<button disabled={busy} onclick={() => void run('delete')}>Remove CV</button>
-				<button disabled={busy} onclick={() => confirmDelete = false}>Cancel</button>
-			{:else}<button onclick={() => confirmDelete = true}>Remove this CV</button>{/if}
-		</div>
-	</details>
-{/if}
 {#if actionError}<p class="notice" role="alert">{actionError}</p>{/if}
 
 <style>
@@ -220,10 +197,6 @@
 	.empty p { margin: 0; font-size: 0.9rem; }
 	.load-more { display: block; width: 100%; padding: 0.8rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background: none; color: var(--color-text); cursor: pointer; font-size: 0.9rem; }
 	.load-more:hover { background: var(--color-surface); }
-	.more-options { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--color-border); color: var(--color-muted); font-size: 0.8rem; }
-	.more-options summary { width: fit-content; cursor: pointer; }
-	.option-actions { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-block: 1rem; }
-	.option-actions p { flex-basis: 100%; margin: 0; }
-	.option-actions button, .notice button { border: 0; padding: 0; background: none; color: var(--color-accent); text-decoration: underline; cursor: pointer; font-size: inherit; }
+	.notice button { border: 0; padding: 0; background: none; color: var(--color-accent); text-decoration: underline; cursor: pointer; font-size: inherit; }
 	button:disabled { opacity: 0.6; cursor: wait; }
 </style>

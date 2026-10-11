@@ -279,8 +279,8 @@ try {
 	assert.equal(readFileSync(join(downloads, 'Candidate-Engineer.pdf'), 'utf8'), pdfFixture, 'Tailor action automatically saves an actual PDF');
 	assert.equal(pdfDownloads, 1);
 	await clickTab('Good matches');
-	await waitFor(`${selected('Good matches')} && ${firstCard}.innerText.includes('Download CV')`);
-	assert.equal(await evaluate(`${firstCard}.querySelector('.time-saved')?.textContent.trim()`), 'Est. 10m saved', 'Completed PDF shows its contribution beside its action');
+	await waitFor(`${selected('Good matches')} && ${firstCard}.innerText.includes('Download tailored CV')`);
+	assert.equal(await evaluate(`${firstCard}.querySelector('.time-saved') === null`), true, 'Savings appear only in the total summary');
 	await evaluate(`${firstCard}.querySelector('.job-actions button:last-child').click()`);
 	await waitFor(`${firstCard}.querySelector('.job-actions button:last-child').disabled === false`);
 	assert.equal(tailorPosts, 2, 'Explicit re-download revalidates the cached version');

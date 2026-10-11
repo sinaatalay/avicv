@@ -16,7 +16,7 @@ bun run dev        # http://localhost:5173
 bun run dev --open # ...and open it in a browser
 ```
 
-The `/items` page needs the backend running. `bun run dev` at the repository root starts both.
+Pages that call the backend need it running. `bun run dev` at the repository root starts both.
 
 ## Scripts
 
@@ -47,17 +47,11 @@ src/
 ├ env.ts                    environment variable declarations
 ├ lib/                      shared code, imported via #lib/...
 │ ├ assets/favicon.svg
-│ ├ components/Counter.svelte
 │ └ server/api.ts           server-only fetch helper for the FastAPI backend
 └ routes/
-  ├ +layout.svelte          app shell: header, nav, footer
+  ├ +layout.svelte          app shell
   ├ layout.css              global styles
   ├ +page.svelte, +page.ts  / (prerendered)
-  ├ about/                  /about (prerendered)
-  ├ items/                  /items, backed by FastAPI
-  │ ├ +page.svelte
-  │ ├ items.remote.ts       remote functions: getItems, addItem, deleteItem
-  │ └ schema.ts             Valibot schema shared by addItem and its preflight
   └ +error.svelte           error page
 static/                     files served as-is
 vite.config.ts              Vite + SvelteKit config (adapter, compiler options, experimental flags)
@@ -66,13 +60,13 @@ bunfig.toml                 Bun config
 
 ## Remote functions
 
-`/items` uses [remote functions](https://svelte.dev/docs/kit/remote-functions) instead of `load` functions and form actions. They are experimental in SvelteKit 3 and enabled in `vite.config.ts` (`experimental.remoteFunctions`, plus `compilerOptions.experimental.async` for `await` in components).
+Data flows through [remote functions](https://svelte.dev/docs/kit/remote-functions) rather than `load` functions, form actions or `+server.ts` endpoints. They are experimental in SvelteKit 3 and enabled in `vite.config.ts` (`experimental.remoteFunctions`, plus `compilerOptions.experimental.async` for `await` in components).
 
-- **`getItems`** (`query`) is awaited directly in the page. During SSR the server waits for it, so the HTML arrives with data. A `<svelte:boundary>` turns a failed request into an inline error with a retry button.
-- **`addItem`** (`form`) is spread onto the `<form>`, so it also works without JavaScript. Input is validated by the Valibot schema on the server, and in the browser through `addItem.preflight(...)`. If FastAPI rejects the data with a 422, its message is attached to the field with `invalid(...)`.
-- **`deleteItem`** (`command`) is called from a button's click handler.
+- **`query`** reads data. Await it directly in markup. During SSR the server waits for it, so the HTML arrives with data. Wrap it in a `<svelte:boundary>` with a `failed` snippet to show errors inline.
+- **`form`** handles mutations from a `<form>`. Spread it onto the element so it also works without JavaScript. Validate its input with a [Valibot](https://valibot.dev) schema, and reuse that schema in the browser through `.preflight(...)`.
+- **`command`** handles mutations triggered from code, such as a button's click handler.
 
-Both mutations call `getItems().refresh()`, which sends the updated list back in the same response, so each one costs a single request.
+Mutations should call `.refresh()` on the queries they affect, so the updated data comes back in the same response. Remote functions call FastAPI through `api()` in `src/lib/server/api.ts`, which turns an unreachable or failing backend into a 503 or 502 error.
 
 ## SvelteKit 3 conventions
 

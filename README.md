@@ -39,7 +39,7 @@ bun run dev    # both dev servers
 
 ## How the frontend talks to the backend
 
-The browser only ever talks to SvelteKit. SvelteKit [remote functions](https://svelte.dev/docs/kit/remote-functions) — `query`, `form` and `command` in [`frontend/src/routes/items/items.remote.ts`](frontend/src/routes/items/items.remote.ts) — run on the SvelteKit server and call FastAPI over HTTP:
+The browser only ever talks to SvelteKit. SvelteKit [remote functions](https://svelte.dev/docs/kit/remote-functions) (`query`, `form` and `command`, in `*.remote.ts` files) run on the SvelteKit server and call FastAPI over HTTP through the `api()` helper in [`frontend/src/lib/server/api.ts`](frontend/src/lib/server/api.ts):
 
 ```
 browser ──remote functions──▶ SvelteKit server (Bun) ──HTTP──▶ FastAPI (uvicorn)
@@ -47,7 +47,6 @@ browser ──remote functions──▶ SvelteKit server (Bun) ──HTTP──�
 
 - The backend's base URL comes from `API_URL`, declared in [`frontend/src/env.ts`](frontend/src/env.ts). It defaults to `http://127.0.0.1:8000`, so local development needs no configuration.
 - Because requests are server-to-server, FastAPI needs no CORS setup and doesn't have to be publicly reachable.
-- The backend's Pydantic models are mirrored by hand as TypeScript types in [`frontend/src/lib/server/api.ts`](frontend/src/lib/server/api.ts).
 
 ## Deploying
 

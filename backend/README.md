@@ -24,23 +24,15 @@ uv run ty check      # type-check
 
 ## API
 
-| Method   | Path              | Description                            |
-| -------- | ----------------- | -------------------------------------- |
-| `GET`    | `/health`         | Liveness check: `{"status": "ok"}`     |
-| `GET`    | `/items/`         | List items                             |
-| `POST`   | `/items/`         | Create an item from `{"name": "..."}`  |
-| `GET`    | `/items/{id}`     | Get one item                           |
-| `DELETE` | `/items/{id}`     | Delete an item                         |
-
-Items are kept in memory, so they reset whenever the server restarts. Swap in a database before relying on them.
+| Method | Path      | Description                        |
+| ------ | --------- | ---------------------------------- |
+| `GET`  | `/health` | Liveness check: `{"status": "ok"}` |
 
 ## Layout
 
 ```
 src/backend/
-├ main.py            the FastAPI app: routers and /health
-└ routers/
-  └ items.py         /items: Pydantic models and endpoints
+└ main.py            the FastAPI app
 tests/               pytest tests
 pyproject.toml       dependencies and tool config (fastapi, pytest, ruff)
 ```

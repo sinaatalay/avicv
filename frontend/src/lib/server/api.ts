@@ -2,12 +2,6 @@ import { error } from '@sveltejs/kit';
 import { getRequestEvent } from '$app/server';
 import { API_URL } from '$app/env/private';
 
-/** Mirrors the `Item` model in backend/src/backend/routers/items.py */
-export interface Item {
-	id: number;
-	name: string;
-}
-
 /**
  * Sends a request to the FastAPI backend from inside a remote function (or
  * load function, action or hook). If the backend can't be reached or fails,

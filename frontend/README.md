@@ -16,7 +16,7 @@ bun run dev        # http://localhost:5173
 bun run dev --open # ...and open it in a browser
 ```
 
-Pages that call the backend need it running. `bun run dev` at the repository root starts both.
+The pages call the backend, so it has to be running. `bun run dev` at the repository root starts everything.
 
 ## Scripts
 
@@ -28,7 +28,7 @@ Pages that call the backend need it running. `bun run dev` at the repository roo
 | `bun run start`     | Run the built server (`bun ./build`, port 3000 by default) |
 | `bun run check`     | Type-check `.ts` and `.svelte` files with `svelte-check`   |
 
-The server reads `HOST`, `PORT` and other variables at startup — see the [adapter-bun docs](https://svelte.dev/docs/kit/adapter-bun#Environment-variables). It assumes it runs behind HTTPS, so form submissions to `bun run start` over plain `http://localhost` are rejected as cross-site. Use `bun run preview` to try the production build locally.
+The server reads `HOST`, `PORT` and other variables at startup — see the [adapter-bun docs](https://svelte.dev/docs/kit/adapter-bun#Environment-variables). Set `BODY_SIZE_LIMIT=10M` in production: the default of 512K is smaller than many résumé PDFs. The server assumes it runs behind HTTPS, so form submissions to `bun run start` over plain `http://localhost` are rejected as cross-site. Use `bun run preview` to try the production build locally.
 
 ## Environment variables
 
@@ -47,11 +47,14 @@ src/
 ├ env.ts                    environment variable declarations
 ├ lib/                      shared code, imported via #lib/...
 │ ├ assets/favicon.svg
-│ └ server/api.ts           server-only fetch helper for the FastAPI backend
+│ └ server/api.ts           server-only fetch helper and types for the FastAPI backend
 └ routes/
   ├ +layout.svelte          app shell
   ├ layout.css              global styles
-  ├ +page.svelte, +page.ts  / (prerendered)
+  ├ +page.svelte            /: drop a résumé PDF
+  ├ resumes/[id]/           /resumes/[id]: live progress and the ranked matches
+  ├ resumes.remote.ts       remote functions: uploadResume (form), watchResume (live query)
+  ├ schema.ts               Valibot schema for the upload, shared with its preflight
   └ +error.svelte           error page
 static/                     files served as-is
 vite.config.ts              Vite + SvelteKit config (adapter, compiler options, experimental flags)
@@ -65,8 +68,16 @@ Data flows through [remote functions](https://svelte.dev/docs/kit/remote-functio
 - **`query`** reads data. Await it directly in markup. During SSR the server waits for it, so the HTML arrives with data. Wrap it in a `<svelte:boundary>` with a `failed` snippet to show errors inline.
 - **`form`** handles mutations from a `<form>`. Spread it onto the element so it also works without JavaScript. Validate its input with a [Valibot](https://valibot.dev) schema, and reuse that schema in the browser through `.preflight(...)`.
 - **`command`** handles mutations triggered from code, such as a button's click handler.
+- **`query.live`** streams values from an async generator. During SSR it returns the first value; in the browser it stays connected and updates in place.
 
 Mutations should call `.refresh()` on the queries they affect, so the updated data comes back in the same response. Remote functions call FastAPI through `api()` in `src/lib/server/api.ts`, which turns an unreachable or failing backend into a 503 or 502 error.
+
+In this app:
+
+- **`uploadResume`** (`form`) takes the PDF from a file field, so `/` works without JavaScript too. With JavaScript, dropping a file on the drop zone fills the field and submits it. The handler passes the PDF to `POST /resumes` and redirects to `/resumes/[id]`. FastAPI rejections (not a PDF, too long) come back as field issues.
+- **`watchResume`** (`query.live`) polls the backend once a second. It yields whenever the status, progress or matches change, and ends once the résumé is done or has failed. Parsing and scoring run in FastAPI's background, so no request has to stay open for them.
+
+On the server, SvelteKit hands uploaded files over as proxies that only claim `File.prototype` through a `getPrototypeOf` trap. Bun's `instanceof` ignores that trap, so Valibot's `v.file()` rejects them. `schema.ts` checks the file's shape instead, and the handler copies the upload into a real `File` before forwarding it.
 
 ## SvelteKit 3 conventions
 
@@ -76,7 +87,7 @@ Mutations should call `.refresh()` on the queries they affect, so the updated da
 - Components use runes (`$state`, `$derived`, `$props`), `onclick`-style event attributes, `{@render children()}` and declaration tags (`{const x = $derived(...)}`).
 - Internal links use `resolve()` from `$app/paths`, which type-checks route IDs. The active nav link is derived from `page.route.id` (`$app/state`).
 - `+error.svelte` receives the error as a typed `error` prop (`ErrorProps`).
-- Pages without dynamic data opt into prerendering with `export const prerender = true`. Pages that use queries must not be prerendered.
+- Pages without dynamic data can opt into prerendering with `export const prerender = true`. Pages that use queries or forms must not be prerendered.
 
 ## Versions
 

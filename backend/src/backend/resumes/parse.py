@@ -1,8 +1,9 @@
 """Résumé PDF -> validated RenderCV model, with Gemini through OpenRouter.
 
-Gemini reads the PDF (natively, so scans work too) and writes RenderCV YAML. RenderCV parses and validates it.
-If that fails, bounded field validation errors go back to the model so it can correct the document. Writing YAML works better than asking Gemini to fill RenderCV's model as JSON: RenderCV's
-`sections` mapping has dynamic keys, which Gemini's structured output can't express.
+Gemini reads the PDF (natively, so scans work too) and writes RenderCV YAML.
+RenderCV parses and validates it. On failure, bounded errors with field paths go
+back to the model so it can correct the document. These paths are not YAML line
+numbers. Writing YAML also preserves RenderCV's dynamically named sections.
 """
 
 import io

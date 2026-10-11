@@ -17,6 +17,35 @@ from .parse import load_yaml, openrouter_model
 
 TAILOR_VERSION = "1"
 
+# RenderCV permits TextEntry/BulletEntry in these sections, so entry shape alone
+# cannot establish which employment/education facts must survive tailoring.
+# Match complete normalized titles rather than substrings such as "experience"
+# in an optional project section.
+MANDATORY_SECTION_TITLES = frozenset(
+    {
+        "education",
+        "education and training",
+        "educational background",
+        "academic background",
+        "academic qualifications",
+        "experience",
+        "work experience",
+        "professional experience",
+        "relevant experience",
+        "employment",
+        "employment history",
+        "work history",
+        "professional history",
+        "career history",
+        "professional background",
+    }
+)
+
+
+def mandatory_section(title: str) -> bool:
+    normalized = " ".join(re.findall(r"[^\W_]+", title.casefold()))
+    return normalized in MANDATORY_SECTION_TITLES
+
 
 class EntrySelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -77,10 +106,13 @@ def apply_plan(source_yaml: str, plan: TailoringPlan) -> str:
         entry["entry_id"]
         for section in sections.values()
         for entry in section["entries"]
-        if isinstance(entry["content"], dict)
-        and (
-            "institution" in entry["content"]
-            or {"company", "position"} <= entry["content"].keys()
+        if mandatory_section(section["title"])
+        or (
+            isinstance(entry["content"], dict)
+            and (
+                "institution" in entry["content"]
+                or {"company", "position"} <= entry["content"].keys()
+            )
         )
     }
     seen_sections: set[str] = set()

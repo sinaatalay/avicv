@@ -132,6 +132,69 @@ def test_model_cannot_add_freeform_claims() -> None:
         tailor.TailoringPlan.model_validate(data)
 
 
+@pytest.mark.parametrize(
+    "title",
+    [
+        "EDUCATION",
+        "Academic Background",
+        "experience",
+        "Work-Experience",
+        "Professional History",
+    ],
+)
+@pytest.mark.parametrize("change", ["omit_entry", "omit_section", "reorder"])
+def test_text_education_and_employment_are_mandatory_and_ordered(
+    title: str, change: str
+) -> None:
+    yaml = f"""cv:
+  name: Candidate Name
+  sections:
+    {title}:
+      - 'First source credential or role, 2024'
+      - 'Earlier source credential or role, 2021'
+    Projects:
+      - 'Optional project'
+"""
+    plan = complete_plan(yaml)
+    # A fully preserved text section remains valid; it need not use typed entries.
+    assert tailor.source_document(
+        tailor.apply_plan(yaml, plan)
+    ) == tailor.source_document(yaml)
+    if change == "omit_entry":
+        plan.sections[0].entries.pop()
+    elif change == "omit_section":
+        del plan.sections[0]
+    else:
+        plan.sections[0].entries.reverse()
+    with pytest.raises(ValueError, match="every.*employment and education"):
+        tailor.apply_plan(yaml, plan)
+
+
+def test_typed_education_and_employment_remain_mandatory_with_custom_titles() -> None:
+    yaml = CV.replace("    Experience:", "    Where I worked:").replace(
+        "    Education:", "    Where I studied:"
+    )
+    for section_index in [0, 1]:
+        plan = complete_plan(yaml)
+        del plan.sections[section_index]
+        with pytest.raises(ValueError, match="every.*employment and education"):
+            tailor.apply_plan(yaml, plan)
+
+
+def test_optional_text_project_title_does_not_become_employment_by_substring() -> None:
+    yaml = """cv:
+  name: Candidate Name
+  sections:
+    User Experience Projects:
+      - 'Relevant project'
+      - 'Optional project'
+"""
+    plan = complete_plan(yaml)
+    plan.sections[0].entries.pop()
+    result = tailor.source_document(tailor.apply_plan(yaml, plan))
+    assert result["cv"]["sections"]["User Experience Projects"] == ["Relevant project"]
+
+
 def test_model_validation_retries_invalid_plan_without_exposing_contact_fields(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:

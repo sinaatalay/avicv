@@ -24,19 +24,20 @@ PROGRESS_INTERVAL = 0.5  # seconds between progress writes while scoring
 
 async def process_resume(resume_id: str, pdf: bytes, settings: Settings) -> None:
     conn = connect_app(settings.app_db)
-    last_preview = {"at": 0.0, "value": ""}
+    preview_at, preview_json = 0.0, ""
 
     def show_progress(partial_yaml: str) -> None:
-        if time.monotonic() - last_preview["at"] < PROGRESS_INTERVAL:
+        nonlocal preview_at, preview_json
+        if time.monotonic() - preview_at < PROGRESS_INTERVAL:
             return
+        preview_at = time.monotonic()
         value = json.dumps(preview(partial_yaml))
-        if value != last_preview["value"]:
+        if value != preview_json:
+            preview_json = value
             conn.execute(
                 "UPDATE resumes SET parse_preview = ? WHERE id = ?", (value, resume_id)
             )
             conn.commit()
-            last_preview["value"] = value
-        last_preview["at"] = time.monotonic()
 
     try:
         try:

@@ -42,7 +42,7 @@
 </script>
 
 <svelte:head>
-	<title>Speedhack</title>
+	<title>AviCV · Find jobs that fit your CV</title>
 	<meta name="description" content="Find jobs that fit your CV and apply directly." />
 </svelte:head>
 

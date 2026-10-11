@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-app = FastAPI(title="speedhack API", lifespan=lifespan)
+app = FastAPI(title="AviCV API", lifespan=lifespan)
 app.include_router(resumes.router)
 app.include_router(artifact_router.router)
 app.include_router(jobs.router)

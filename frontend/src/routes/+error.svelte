@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-	<title>{error.status} · Speedhack</title>
+	<title>{error.status} · AviCV</title>
 </svelte:head>
 
 <h1>{error.status}</h1>

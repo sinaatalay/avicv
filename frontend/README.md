@@ -1,4 +1,4 @@
-# frontend
+# AviCV frontend
 
 A vanilla [SvelteKit 3](https://svelte.dev/docs/kit) + [Svelte 5](https://svelte.dev/docs/svelte) + [Vite 8](https://vite.dev) app running on [Bun](https://bun.com). It was scaffolded with [`sv`](https://svelte.dev/docs/cli) (minimal template, TypeScript, no add-ons). [Valibot](https://valibot.dev) validates input and [Lucide](https://lucide.dev/guide/svelte) supplies the job-action icons through `@lucide/svelte`.
 

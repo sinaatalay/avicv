@@ -229,7 +229,9 @@ def openrouter_model(settings: Settings) -> Model:
     if settings.openrouter_api_key is None:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
     provider = OpenRouterProvider(
-        api_key=settings.openrouter_api_key.get_secret_value(), app_title="speedhack"
+        api_key=settings.openrouter_api_key.get_secret_value(),
+        app_title="AviCV",
+        app_url="https://avicv.com",
     )
     return OpenRouterModel(
         settings.parse_model,

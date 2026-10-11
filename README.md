@@ -1,11 +1,13 @@
-# speedhack
+# AviCV
+
+Find jobs that fit your CV. Apply directly and download a tailored résumé. Built for [avicv.com](https://avicv.com).
 
 Drop your résumé as a PDF and see which open jobs you'd fit. The backend reads the PDF into a [RenderCV](https://docs.rendercv.com) CV with Gemini, compares it with thousands of open US/Canada roles pulled from employers' public job boards, and ranks them with [Jev](https://docs.typesafe.ai), TypeSafe's decision model. The details are in [backend/README.md](backend/README.md).
 
 A SvelteKit frontend and a FastAPI backend live in one repository.
 
 ```
-speedhack/
+avicv/
 ├ frontend/          SvelteKit 3 + Svelte 5 + Vite 8 app, run with Bun   → frontend/README.md
 ├ backend/           FastAPI app on Python 3.14, managed with uv         → backend/README.md
 ├ package.json       Bun workspace root, plus scripts that drive both apps

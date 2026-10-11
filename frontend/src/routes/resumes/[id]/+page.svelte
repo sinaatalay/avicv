@@ -124,7 +124,7 @@
 	}
 </script>
 
-<svelte:head><title>Your job matches · Speedhack</title></svelte:head>
+<svelte:head><title>Your job matches · AviCV</title></svelte:head>
 
 <div class="page-heading">
 	<h1>Your job matches</h1>

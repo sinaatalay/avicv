@@ -1,6 +1,6 @@
 # backend
 
-The FastAPI app behind speedhack, on Python 3.14 and managed with [uv](https://docs.astral.sh/uv/). It is a member of the uv workspace rooted at the repository root, so `uv.lock`, `.python-version` and `.venv` live there.
+The FastAPI app behind AviCV, on Python 3.14 and managed with [uv](https://docs.astral.sh/uv/). It is a member of the uv workspace rooted at the repository root, so `uv.lock`, `.python-version` and `.venv` live there.
 
 It does four things:
 

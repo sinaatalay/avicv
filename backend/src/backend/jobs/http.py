@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 import httpx2 as httpx
 
-USER_AGENT = "speedhack/0.1 (job ingestion)"
+USER_AGENT = "AviCV/0.1 (+https://avicv.com; job ingestion)"
 RETRYABLE_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 

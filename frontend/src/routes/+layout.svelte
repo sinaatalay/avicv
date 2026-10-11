@@ -21,6 +21,9 @@
 
 		<nav aria-label="Main">
 			<a href={resolve('/')} aria-current={page.route.id === '/' ? 'page' : undefined}>Home</a>
+			<a href={resolve('/items')} aria-current={page.route.id === '/items' ? 'page' : undefined}>
+				Items
+			</a>
 			<a href={resolve('/about')} aria-current={page.route.id === '/about' ? 'page' : undefined}>
 				About
 			</a>

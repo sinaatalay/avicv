@@ -37,3 +37,9 @@ async def read_item(item_id: int) -> Item:
     if item_id not in items:
         raise HTTPException(status_code=404, detail="Item not found")
     return items[item_id]
+
+
+@router.delete("/{item_id}", status_code=204)
+async def delete_item(item_id: int) -> None:
+    if items.pop(item_id, None) is None:
+        raise HTTPException(status_code=404, detail="Item not found")

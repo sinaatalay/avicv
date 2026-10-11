@@ -34,3 +34,13 @@ def test_read_missing_item() -> None:
     response = client.get("/items/0")
     assert response.status_code == 404
     assert response.json() == {"detail": "Item not found"}
+
+
+def test_delete_item() -> None:
+    item = client.post("/items/", json={"name": "Portal Gun"}).json()
+
+    response = client.delete(f"/items/{item['id']}")
+    assert response.status_code == 204
+
+    response = client.delete(f"/items/{item['id']}")
+    assert response.status_code == 404

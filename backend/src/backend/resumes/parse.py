@@ -231,7 +231,18 @@ def openrouter_model(settings: Settings) -> Model:
     provider = OpenRouterProvider(
         api_key=settings.openrouter_api_key.get_secret_value(), app_title="speedhack"
     )
-    return OpenRouterModel(settings.parse_model, provider=provider)
+    return OpenRouterModel(
+        settings.parse_model,
+        provider=provider,
+        settings=OpenRouterModelSettings(
+            # Restrict every CV operation to the configured provider. Whether its
+            # own shared capacity is allowed remains an OpenRouter BYOK setting.
+            openrouter_provider={
+                "only": [settings.openrouter_provider],
+                "allow_fallbacks": False,
+            },
+        ),
+    )
 
 
 async def parse_resume(

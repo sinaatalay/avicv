@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", extra="ignore")
 
     openrouter_api_key: SecretStr | None = None
+    openrouter_provider: str = Field(
+        default="google-vertex",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-z0-9]+(?:[-/][a-z0-9]+)*$",
+    )
     typesafe_api_key: SecretStr | None = None
     data_dir: Path = BACKEND_DIR / "data"
     parse_model: str = "google/gemini-3.8-flash"

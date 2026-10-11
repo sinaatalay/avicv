@@ -18,6 +18,27 @@ uv sync                # from anywhere in the repo
 
 `.env.example` lists the optional settings and their defaults. You can also set any of them as an environment variable.
 
+### OpenRouter BYOK
+
+Parsing, design reconstruction, and tailoring route through `OPENROUTER_PROVIDER`
+(default `google-vertex`), with cross-provider fallback disabled. The OpenRouter
+API key in `backend/.env` must belong to the workspace containing the prioritized
+Vertex credential and match its **API Keys**, **Models**, and **Members** filters.
+The Google service account stays in OpenRouter; do not put it in this app's env file.
+
+Provider selection alone does not enforce BYOK. In that workspace's Vertex BYOK
+settings, choose **Never use OpenRouter's Google Vertex capacity for any model**
+to prevent shared-capacity billing. See [OpenRouter's BYOK documentation](https://openrouter.ai/docs/guides/overview/auth/byok).
+
+Run `uv run python -m backend.check_openrouter` from `backend/` to verify the
+actual route. It makes one tiny, billable request per distinct configured model,
+using the same factory as the app and no CV data. It prints the provider,
+generation ID, and OpenRouter's `is_byok` flag; exits successfully only when every
+model explicitly reports `is_byok: true`. A missing flag or `false` fails the
+check. Inspect that generation in OpenRouter Activity for provider attempts;
+no BYOK attempt points to workspace/filter eligibility, while failed BYOK
+attempts show upstream credential, permission, or quota errors.
+
 ## Developing
 
 ```sh

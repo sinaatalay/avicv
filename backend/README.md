@@ -84,6 +84,7 @@ The frontend saves recent result links, filters, pagination preferences, and bou
 | `GET`  | `/resumes/{id}/matches`         | Scored roles, best first (`limit`, default 100); fills in while scoring |
 | `GET`  | `/resumes/{id}/match-results`   | Counts and results; `category=all\|good\|other`, `nearby`/`include_closed`, `limit` ≤ 500, `offset` |
 | `GET`  | `/resumes/{id}/good-match-links` | All unique available application URLs for good matches, ranked and unpaginated |
+| `GET`  | `/resumes/{id}/time-savings`     | Unique completed work and explicit manual-effort estimates for this CV |
 | `POST` | `/resumes/{id}/retry`           | Resume failed processing or retry failed role scores             |
 | `POST` | `/resumes/{id}/rematch`         | Refresh against the catalog; optional JSON `location` override   |
 | `DELETE` | `/resumes/{id}`               | Delete uploaded PDF, parsed CV, queue entry, and saved scores     |
@@ -97,6 +98,8 @@ The frontend saves recent result links, filters, pagination preferences, and bou
 | `GET`  | `/health`                       | Liveness check: `{"status": "ok"}`                               |
 
 Good matches have a composite score strictly above `0.80`; other jobs have a score at or below it. `good_total` and `other_total` describe the full available, location-filtered set before category pagination. Jobs within each category remain ordered by descending match score. The UI uses the categories and application links without exposing score percentages or processing diagnostics.
+
+Time saved is an estimate of equivalent manual effort: 30 seconds per successfully reviewed job and 10 minutes per completed tailored CV. These are product assumptions, not measured user time or research-backed benchmarks. Counts come from persisted results across matching generations and ready PDF artifacts, scoped to one uploaded CV. Stable posting identities and explicit groups prevent revisions, retries, rematches and repeat downloads from adding credit for the same job. Legacy records with no verifiable identity or saved URL are omitted. Background runtime is not subtracted because it does not measure the user's effort.
 
 ## Checks
 

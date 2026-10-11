@@ -2,7 +2,7 @@
 	import type { Match } from './contracts.ts';
 	import type { TailorStates } from './tailored-cvs.ts';
 	import JobActions from './JobActions.svelte';
-	let { matches, tailoring, onTailor }: { matches: Match[]; tailoring: TailorStates; onTailor: (jobKey: string) => void } = $props();
+	let { matches, tailoring, tailoringSeconds, onTailor }: { matches: Match[]; tailoring: TailorStates; tailoringSeconds?: number; onTailor: (jobKey: string) => void } = $props();
 
 	function salary(match: Match) {
 		if (match.salary_min === null || !match.salary_currency) return null;
@@ -52,7 +52,7 @@
 					<p class="availability">This listing may no longer be available.</p>
 				{/if}
 			</div>
-			<JobActions title={match.title} company={match.company} {url} tailoring={tailoring[match.job_key]} onTailor={() => onTailor(match.job_key)} />
+			<JobActions title={match.title} company={match.company} {url} tailoring={tailoring[match.job_key]} {tailoringSeconds} onTailor={() => onTailor(match.job_key)} />
 		</li>
 	{/each}
 </ol>

@@ -12,6 +12,8 @@ const originalRealEnv = readRealEnv();
 let apiAvailable = true;
 let bulkLinksMode: 'normal' | 'empty' | 'unavailable' = 'normal';
 let bulkLinkRequests = 0;
+let savingsMode: 'normal' | 'zero' | 'unavailable' = 'normal';
+let savingsRequests = 0;
 let tailoringReady = false;
 let tailorPosts = 0;
 let pdfDownloads = 0;
@@ -46,6 +48,15 @@ let allMatches = Array.from({ length: 130 }, (_, index) => ({
 const api = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(request) {
 	if (!apiAvailable) return Response.json({ detail: 'Test unavailable' }, { status: 503 });
 	const url = new URL(request.url);
+	if (url.pathname.endsWith('/time-savings')) {
+		savingsRequests++;
+		if (savingsMode === 'unavailable') return Response.json({ detail: 'Savings unavailable' }, { status: 503 });
+		const jobsReviewed = savingsMode === 'zero' ? 0 : 130;
+		const cvsTailored = savingsMode === 'zero' || !tailoringReady ? 0 : 1;
+		return Response.json({ jobs_reviewed: jobsReviewed, cvs_tailored: cvsTailored,
+			job_review_seconds: 30, cv_tailoring_seconds: 600,
+			estimated_seconds: jobsReviewed * 30 + cvsTailored * 600 });
+	}
 	if (url.pathname.endsWith('/good-match-links')) {
 		bulkLinkRequests++;
 		if (bulkLinksMode === 'unavailable') return Response.json({ detail: 'Links unavailable' }, { status: 503 });
@@ -168,6 +179,22 @@ try {
 	const selected = (name: string) => `${tab(name)}?.getAttribute('aria-selected') === 'true'`;
 	const clickTab = async (name: string) => evaluate(`${tab(name)}.click()`);
 	await waitFor(`document.querySelectorAll('.matches > li').length === 20 && ${selected('Good matches')}`);
+	const savings = `document.querySelector('.time-savings')`;
+	const savingsValue = `document.querySelector('.time-savings-value')?.textContent.trim()`;
+	const assertSavings = async (value: string, detail: string) => {
+		await waitFor(`${savingsValue} === ${JSON.stringify(value)}`);
+		const savingsText = await evaluate(`${savings}.textContent.replace(/\\s+/g, ' ').trim()`);
+		assert.ok(savingsText.includes(detail), `Expected savings detail ${JSON.stringify(detail)} in ${JSON.stringify(savingsText)}`);
+		assert.equal(await evaluate(`${savings}.textContent.includes('Estimated time saved')`), true, 'Always label time saved as an estimate');
+	};
+	await assertSavings('~1h 5m saved', '130 jobs checked');
+	assert.equal(await evaluate(`${savings}.textContent.includes('132 jobs')`), false, 'Unsuccessful assessments do not inflate savings');
+	assert.equal(await evaluate(`${savings}.querySelector('details').open`), false, 'Calculation stays behind a compact disclosure');
+	await evaluate(`${savings}.querySelector('summary').click()`);
+	assert.equal(await evaluate(`${savings}.innerText.includes('30 sec per job checked + 10 min per tailored CV.')`), true);
+	assert.equal(await evaluate(`${savings}.innerText.includes('actual times vary')`), true);
+	assert.equal(await evaluate(`${savings}.innerText.includes('Downloads and retries add no time.')`), true);
+	await evaluate(`${savings}.querySelector('summary').click()`);
 	assert.equal(await evaluate(`${tab('Good matches')}.textContent.includes('115')`), true);
 	assert.equal(await evaluate(`${tab('Other jobs')}.textContent.includes('15')`), true);
 	assert.equal(await evaluate(`document.body.innerText.includes('Engineer 1')`), true);
@@ -232,25 +259,33 @@ try {
 	assert.equal(await evaluate(`document.querySelector('.copy-fallback input').selectionEnd`), 'https://example.com/jobs/2'.length);
 	await evaluate(`document.querySelectorAll('.matches > li')[1].querySelector('.job-actions button:last-child').click()`);
 	await waitFor(`document.querySelectorAll('.matches > li')[1].innerText.includes('Choose another job')`);
+	await assertSavings('~1h 5m saved', '130 jobs checked');
+	assert.equal(await evaluate(`document.querySelector('.matches .time-saved') === null`), true, 'Failed tailoring has no time-saved claim');
 	await evaluate(`${firstCard}.querySelector('.job-actions button:last-child').click()`);
 	await waitFor(`${firstCard}.innerText.includes('Preparing CV…') && localStorage.getItem('speedhack.tailored-cvs.v1')?.includes('${artifactId}')`);
+	await assertSavings('~1h 5m saved', '130 jobs checked');
+	assert.equal(await evaluate(`${firstCard}.querySelector('.time-saved') === null`), true, 'Queued tailoring has no time-saved claim');
 	assert.equal(tailorPosts, 1);
 	await clickTab('Other jobs');
 	await waitFor(selected('Other jobs'));
 	await changePage('Page.reload');
 	await waitFor(`document.querySelectorAll('.matches > li').length === 15 && ${selected('Other jobs')}`);
 	assert.equal(tailorPosts, 1, 'Refresh never creates another tailored CV');
+	await assertSavings('~1h 5m saved', '130 jobs checked');
 	tailoringReady = true;
 	await waitFor(`JSON.parse(localStorage.getItem('speedhack.tailored-cvs.v1')).entries[0].downloadPending === false`);
+	await assertSavings('~1h 15m saved', '130 jobs checked · 1 CV tailored');
 	for (let attempt = 0; attempt < 100 && !existsSync(join(downloads, 'Candidate-Engineer.pdf')); attempt++) await sleep(100);
 	assert.equal(readFileSync(join(downloads, 'Candidate-Engineer.pdf'), 'utf8'), pdfFixture, 'Tailor action automatically saves an actual PDF');
 	assert.equal(pdfDownloads, 1);
 	await clickTab('Good matches');
 	await waitFor(`${selected('Good matches')} && ${firstCard}.innerText.includes('Download CV')`);
+	assert.equal(await evaluate(`${firstCard}.querySelector('.time-saved')?.textContent.trim()`), 'Est. 10m saved', 'Completed PDF shows its contribution beside its action');
 	await evaluate(`${firstCard}.querySelector('.job-actions button:last-child').click()`);
 	await waitFor(`${firstCard}.querySelector('.job-actions button:last-child').disabled === false`);
 	assert.equal(tailorPosts, 2, 'Explicit re-download revalidates the cached version');
 	assert.equal(pdfDownloads, 2);
+	await assertSavings('~1h 15m saved', '130 jobs checked · 1 CV tailored');
 	assert.equal(readdirSync(downloads).some((name) => name.endsWith('.pdf')), true);
 	await evaluate(`document.getElementById('good-tab').focus()`);
 	for (const [key, code, categoryName, count] of [['ArrowRight', 39, 'Other jobs', 15], ['ArrowLeft', 37, 'Good matches', 20]] as const) {
@@ -270,6 +305,7 @@ try {
 	await changePage('Page.reload');
 	await waitFor(`document.querySelectorAll('.matches > li').length === 15 && ${selected('Other jobs')}`);
 	assert.equal(pdfDownloads, 2, 'Completed downloads do not repeat on refresh');
+	await assertSavings('~1h 15m saved', '130 jobs checked · 1 CV tailored');
 	await clickTab('Good matches');
 	await waitFor(`document.querySelectorAll('.matches > li').length === 115 && ${selected('Good matches')}`);
 	await clickTab('Other jobs');
@@ -287,13 +323,16 @@ try {
 	apiAvailable = true;
 	await evaluate(`[...document.querySelectorAll('button')].find(b => /Reconnect|Try again/.test(b.textContent)).click()`);
 	await waitFor(`document.querySelectorAll('.matches > li').length === 15 && ${selected('Other jobs')}`);
+	await assertSavings('~1h 15m saved', '130 jobs checked · 1 CV tailored');
 	const desktopShot = await send('Page.captureScreenshot', { format: 'png' });
 	await Bun.write(resolve(import.meta.dir, '../../.context/job-actions-desktop-fixture.png'), Buffer.from(desktopShot.data, 'base64'));
+	await Bun.write(resolve(import.meta.dir, '../../.context/time-savings-desktop-fixture.png'), Buffer.from(desktopShot.data, 'base64'));
 	await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
 	assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, 'Mobile has no horizontal overflow');
 	await assertActionRail();
 	const shot = await send('Page.captureScreenshot', { format: 'png' });
 	await Bun.write(resolve(import.meta.dir, '../../.context/job-actions-mobile-fixture.png'), Buffer.from(shot.data, 'base64'));
+	await Bun.write(resolve(import.meta.dir, '../../.context/time-savings-mobile-fixture.png'), Buffer.from(shot.data, 'base64'));
 	await clickTab('Good matches');
 	await waitFor(`document.querySelectorAll('.matches > li').length === 115 && ${selected('Good matches')}`);
 	assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth && ${bulkCopy}.getBoundingClientRect().right <= window.innerWidth`), true, 'Bulk action fits mobile without overflow');
@@ -312,9 +351,19 @@ try {
 	await waitFor(`document.querySelectorAll('.matches > li').length === 20 && ${selected('Other jobs')}`);
 	assert.equal(await evaluate(`document.body.innerText.includes('No good matches yet')`), true);
 	assert.equal(await evaluate(`${tab('Good matches')}.textContent.includes('0')`), true);
+	for (const mode of ['unavailable', 'zero'] as const) {
+		savingsMode = mode;
+		const requestsBefore = savingsRequests;
+		await changePage('Page.reload');
+		await waitFor(`document.querySelectorAll('.matches > li').length === 20 && ${selected('Other jobs')}`);
+		for (let attempt = 0; attempt < 100 && savingsRequests === requestsBefore; attempt++) await sleep(100);
+		assert.ok(savingsRequests > requestsBefore, `The ${mode} savings response was requested`);
+		await waitFor(`${savings} === null`);
+		assert.equal(await evaluate(`document.body.innerText.includes('Savings unavailable')`), false, 'Unavailable savings never introduces an engineering error panel');
+	}
 	assert.deepEqual(exceptions, []);
 	assert.equal(readRealEnv(), originalRealEnv, 'The browser test must not modify the running dev server environment');
-	console.log('PASS: bulk copying all 115 ranked good links beyond visible cards, bulk empty/error/denied states, three actions, direct Apply links, clipboard success and denied fallback, durable tailoring and automatic PDF download after reload/tab switch, version revalidation, category boundary and counts, independent pagination, no percentages or diagnostics, history and preferences, offline/reconnect, mobile layout, zero-good fallback, browser isolation.');
+	console.log('PASS: estimated time saved from successful checks and ready PDFs, transparent assumptions, no inflation after failed/queued requests or repeated downloads/refresh, live tailoring update, zero/unavailable savings hidden; bulk copying all 115 ranked good links beyond visible cards, bulk empty/error/denied states, three actions, direct Apply links, clipboard success and denied fallback, durable tailoring and automatic PDF download after reload/tab switch, version revalidation, category boundary and counts, independent pagination, no percentages or diagnostics, history and preferences, offline/reconnect, mobile layout, zero-good fallback, browser isolation.');
 
 } catch (error) { console.error(logs); throw error; }
 finally {

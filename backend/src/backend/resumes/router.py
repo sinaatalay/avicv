@@ -11,12 +11,11 @@ import sqlite3
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, UploadFile
 from fastapi.responses import PlainTextResponse
-from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field
 from pypdf import PdfReader
 from rendercv.schema.sample_generator import dictionary_to_yaml
 
@@ -24,8 +23,10 @@ from ..config import Settings, get_settings
 from ..db import connect_app
 from .artifact_store import ArtifactQueueFull, check_artifact_capacity
 from .catalog import catalog_states
+from .links import job_url
 from .parse import load_yaml
 from .queue import enqueue
+from .savings import TimeSavings, time_savings
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -34,8 +35,6 @@ MAX_PAGES = 10
 GOOD_MATCH_THRESHOLD = 0.80
 MatchCategory = Literal["all", "good", "other"]
 MATCH_ORDER = "m.score DESC, m.job_key, m.questions"
-HTTP_URL = TypeAdapter(AnyHttpUrl)
-MAX_JOB_URL_LENGTH = 8192
 
 
 class ResumeCreated(BaseModel):
@@ -353,6 +352,21 @@ def get_good_match_links(
         conn.close()
 
 
+@router.get("/{resume_id}/time-savings")
+def get_time_savings(
+    resume_id: str, settings: SettingsDep, response: Response
+) -> TimeSavings:
+    conn = connect_app(settings.app_db)
+    try:
+        conn.execute("BEGIN")
+        fetch_resume(resume_id, settings, connection=conn)
+        result = time_savings(conn, resume_id)
+        response.headers["Cache-Control"] = "private, no-store"
+        return result
+    finally:
+        conn.close()
+
+
 @router.get("/{resume_id}/matches")
 def get_matches(
     resume_id: str,
@@ -559,33 +573,6 @@ def prepare_match_catalog(
             for key, state in states.items()
         ],
     )
-
-
-def job_url(job: dict[str, Any]) -> str | None:
-    """Choose a usable application/source URL without allowing active schemes."""
-    for value in (job.get("apply_url"), job.get("source_url")):
-        if (
-            not isinstance(value, str)
-            or not value
-            or len(value) > MAX_JOB_URL_LENGTH
-            or not value.lower().startswith(("http://", "https://"))
-            or "\\" in value
-            or any(
-                char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value
-            )
-        ):
-            continue
-        try:
-            # Validation may normalize a malformed https:///host; never return
-            # the original value unless it already has an explicit authority.
-            if not urlsplit(value).netloc:
-                continue
-            parsed = HTTP_URL.validate_python(value)
-            if parsed.host and parsed.username is None and parsed.password is None:
-                return value
-        except ValueError:
-            continue
-    return None
 
 
 def match_for_display(row: Any, location_known: bool) -> Match:

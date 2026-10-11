@@ -2,9 +2,12 @@
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
+	import * as v from 'valibot';
 	import type { JobTab, ResumeResults } from '#lib/contracts.ts';
 	import MatchList from '#lib/MatchList.svelte';
 	import CopyGoodMatchLinks from '#lib/CopyGoodMatchLinks.svelte';
+	import TimeSavings from '#lib/TimeSavings.svelte';
+	import { timeSavingsSchema, type TimeSavings as TimeSavingsValue } from '#lib/time-savings.ts';
 	import { createTailorManager, type TailorStates } from '#lib/tailored-cvs.ts';
 	import { cachedMatches, forgetResume, readHistory, saveVisit, type HistoryEntry, type ViewPreferences } from '#lib/resume-history.ts';
 	import { deleteResume, rematchResume, retryResume, watchResume } from '../../resumes.remote.ts';
@@ -22,6 +25,7 @@
 	let actionError = $state('');
 	let confirmDelete = $state(false);
 	let tailoring = $state<TailorStates>({});
+	let savings = $state<{ resumeId: string; value: TimeSavingsValue } | null>(null);
 	let tailorManager: ReturnType<typeof createTailorManager> | undefined;
 	const result = $derived(watchResume({ id: params.id, nearby: false, category, limit: limits[category] }));
 	const data = $derived(result.current);
@@ -34,6 +38,27 @@
 	const otherCount = $derived(current?.matches.other_total ?? activeCache?.snapshot?.otherTotal);
 	const shown = $derived(current?.matches.items ?? cachedMatches(activeCache, category));
 	const activeTotal = $derived(category === 'good' ? goodCount : otherCount);
+	const activeSavings = $derived(savings?.resumeId === params.id ? savings.value : null);
+	const completedTailoring = $derived(Object.values(tailoring)
+		.filter((state) => state.artifact?.status === 'ready')
+		.map((state) => state.artifact!.id).sort().join('|'));
+	$effect(() => {
+		const id = params.id;
+		// Refresh authoritative totals as work completes, without counting browser events.
+		void r?.progress.succeeded;
+		void r?.status;
+		void completedTailoring;
+		const controller = new AbortController();
+		const { signal } = controller;
+		void fetch(resolve('/resumes/[id]/time-savings', { id }), { signal, cache: 'no-store' })
+			.then(async (response) => {
+				if (!response.ok) throw new Error('Estimate unavailable');
+				const value = v.parse(timeSavingsSchema, await response.json());
+				if (!signal.aborted) savings = { resumeId: id, value };
+			})
+			.catch(() => { if (!signal.aborted) savings = null; });
+		return () => controller.abort();
+	});
 	$effect(() => {
 		const id = params.id;
 		tailoring = {};
@@ -116,6 +141,8 @@
 	<p class="cv-summary"><span>{r?.filename ?? r?.cv?.name ?? 'Your saved CV'}</span><a href={resolve('/')}>Change CV</a></p>
 </div>
 
+<TimeSavings value={activeSavings} />
+
 {#if storageWarning}<p class="notice" role="status">{storageWarning}</p>{/if}
 {#if result.error}
 	<div class="notice" role="alert"><p>We couldn't load your latest jobs.{shown.length ? ' Your saved jobs are below.' : ''}</p><button onclick={() => void result.reconnect()}>Try again</button></div>
@@ -141,7 +168,7 @@
 	{#if !data && !current && shown.length}<p class="saved-notice">Saved jobs. {result.error ? 'Check back when you’re online.' : 'Checking for updates…'}</p>{/if}
 	{#if current?.matches.results_are_previous}<p class="saved-notice">Here are your saved jobs while we look for new matches.</p>{/if}
 	{#if shown.length}
-		<MatchList matches={shown} {tailoring} onTailor={(jobKey) => void tailorManager?.request(jobKey)} />
+		<MatchList matches={shown} {tailoring} tailoringSeconds={activeSavings?.cv_tailoring_seconds} onTailor={(jobKey) => void tailorManager?.request(jobKey)} />
 		{#if current?.matches.has_more || (activeTotal !== undefined && shown.length < activeTotal && data)}
 			<button class="load-more" disabled={result.loading} onclick={loadMore}>{result.loading ? 'Loading…' : 'Show more jobs'}</button>
 		{/if}

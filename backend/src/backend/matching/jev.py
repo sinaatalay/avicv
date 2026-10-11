@@ -2,11 +2,12 @@
 
 Each pair gets one request. Its state is `{candidate, job}`, and it asks every question at once: TypeSafe answers
 questions about one state in parallel, so extra questions are nearly free, whereas several jobs in one state would
-distract the model. Jev returns calibrated probabilities instead of text, and bills input tokens only.
+distract the model. Its answers are model estimates, not measured hiring probabilities.
 """
 
 import asyncio
 import logging
+import math
 import re
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -26,7 +27,7 @@ log = logging.getLogger(__name__)
 PRICE_PER_MTOK = 0.042  # USD per million input tokens for jev-1.13; output is free
 
 # Bump when the questions change, so cached answers to the old ones aren't reused
-QUESTIONS_VERSION = "1"
+QUESTIONS_VERSION = "2"
 QUESTIONS = {
     "fit": Score(
         instructions="How well does `candidate` match the work and the requirements described in `job`?",
@@ -63,7 +64,8 @@ QUESTIONS = {
     ),
     "location": Noul(
         instructions="Can `candidate` take `job` without relocating, given where the candidate lives and the job's "
-        "location and remote policy?",
+        "location and remote policy? If only the candidate's country is known, assess country eligibility; "
+        "do not invent a city or reject a job for an unknown commute within that country.",
         criteria=NoulCriteria(
             true="The job is in the candidate's area, or it is remote and open to people in the candidate's country.",
             false="The job requires being in a place far from the candidate, or is remote only for other countries.",
@@ -80,9 +82,27 @@ class JobScore:
     fit: float
     interview: float
     must_haves: float
-    location: float
+    location: float | None
     seniority: str
     input_tokens: int
+
+    def __post_init__(self) -> None:
+        for name, maximum in (
+            ("score", 1),
+            ("fit", 4),
+            ("interview", 1),
+            ("must_haves", 1),
+            ("location", 1),
+        ):
+            value = getattr(self, name)
+            if value is None and name == "location":
+                continue
+            if not math.isfinite(value) or not 0 <= value <= maximum:
+                raise ValueError(f"Invalid {name} score: {value!r}")
+        if self.seniority not in {"below", "matches", "above"}:
+            raise ValueError(f"Invalid seniority: {self.seniority!r}")
+        if self.input_tokens < 0:
+            raise ValueError("input_tokens must be nonnegative")
 
 
 def composite(fit: float, interview: float, must_haves: float) -> float:
@@ -91,19 +111,32 @@ def composite(fit: float, interview: float, must_haves: float) -> float:
 
 
 def candidate_state(cv: Cv, today: date | None = None) -> dict[str, Any]:
-    """What Jev sees of the candidate: the professional content, never contact details.
+    """Project RenderCV's entry types into a stable professional profile.
 
-    Years of experience are computed here, because Jev is unreliable at date arithmetic.
+    Custom section names never become root keys: a section called "Skills" may
+    contain bullets, prose, or one-line entries without changing a field's type.
+    Preserve projects, research, and educational evidence alongside employment.
+    Top-level contact fields are omitted; free text is not a redaction boundary.
     """
     today = today or date.today()
-    state: dict[str, Any] = {"headline": cv.headline, "location": cv.location}
+    location = (cv.location or "").strip()
+    state: dict[str, Any] = {
+        "headline": cv.headline,
+        "location": location or "United States",
+        "location_source": "resume" if location else "default",
+        "summary": [],
+        "skills": {},
+        "education": [],
+        "publications": [],
+        "sections": [],
+    }
     roles: list[dict[str, Any]] = []
     intervals: list[tuple[date, date]] = []
     for section in cv.rendercv_sections:
-        title, entries = section.title.lower(), section.entries
+        entries = section.entries
         match section.entry_type:
             case "TextEntry":
-                state.setdefault("summary", []).extend(entries)
+                state["summary"].extend(entries)
             case "ExperienceEntry":
                 for entry in entries:
                     role, interval = describe_role(entry, today)
@@ -111,22 +144,34 @@ def candidate_state(cv: Cv, today: date | None = None) -> dict[str, Any]:
                     if interval:
                         intervals.append(interval)
             case "EducationEntry":
-                state.setdefault("education", []).extend(map(describe_degree, entries))
+                state["education"].extend(
+                    entry.model_dump(mode="json", exclude_none=True)
+                    for entry in entries
+                )
             case "OneLineEntry":
-                skills = {e.label: e.details for e in entries}
-                state.setdefault("skills", {}).update(skills)
-            case "NormalEntry":
-                items = [" - ".join(filter(None, [e.name, e.summary])) for e in entries]
-                state.setdefault(title, []).extend(items)
+                for entry in entries:
+                    previous = state["skills"].get(entry.label)
+                    state["skills"][entry.label] = (
+                        f"{previous}; {entry.details}" if previous else entry.details
+                    )
             case "PublicationEntry":
-                items = [f"{e.title} ({e.journal or ''})" for e in entries]
-                state.setdefault("publications", []).extend(items)
-            case "BulletEntry":
-                state.setdefault(title, []).extend(e.bullet for e in entries)
-            case "NumberedEntry":
-                state.setdefault(title, []).extend(e.number for e in entries)
-            case "ReversedNumberedEntry":
-                state.setdefault(title, []).extend(e.reversed_number for e in entries)
+                state["publications"].extend(
+                    entry.model_dump(mode="json", exclude_none=True)
+                    for entry in entries
+                )
+            case _:
+                state["sections"].append(
+                    {
+                        "title": section.title,
+                        "entry_type": section.entry_type,
+                        "entries": [
+                            entry
+                            if isinstance(entry, str)
+                            else entry.model_dump(mode="json", exclude_none=True)
+                            for entry in entries
+                        ],
+                    }
+                )
 
     years = round(merged_months(intervals) / 12, 1)
     state["total_years_of_professional_experience"] = years
@@ -154,11 +199,6 @@ def describe_role(
     )
     role["years"] = round(months(*interval) / 12, 1)
     return role, interval if entry.start_date else None
-
-
-def describe_degree(entry: Any) -> str:
-    parts = [entry.degree, entry.area, "at", entry.institution]
-    return " ".join(filter(None, parts)) + f" ({entry.end_date or entry.date or ''})"
 
 
 def months(start: date, end: date) -> int:
@@ -202,6 +242,7 @@ def job_state(job: Mapping[str, Any], max_chars: int = 6000) -> dict[str, Any]:
         "company": job.get("company"),
         "locations": job.get("locations"),
         "workplace_type": job.get("workplace_type"),
+        "employment_type": job.get("employment_type"),
         "description": description,
     }
 
@@ -222,7 +263,15 @@ async def score_jobs(
     concurrency: int,
 ) -> AsyncIterator[tuple[Mapping[str, Any], JobScore | Exception]]:
     """Score every job, yielding results as they complete. A failed request yields its exception."""
+    if concurrency < 1:
+        raise ValueError("concurrency must be positive")
     semaphore = asyncio.Semaphore(concurrency)
+    location_known = bool(str(candidate.get("location") or "").strip())
+    questions = {
+        key: value
+        for key, value in QUESTIONS.items()
+        if key != "location" or location_known
+    }
 
     async def one(
         job: Mapping[str, Any],
@@ -231,7 +280,7 @@ async def score_jobs(
             async with semaphore:
                 response = await client.system_one(
                     state={"candidate": candidate, "job": job_state(job)},
-                    questions=QUESTIONS,
+                    questions=questions,
                 )
             nouls, scores, choices = response.nouls, response.scores, response.choices
             fit, interview, must_haves = (
@@ -246,7 +295,7 @@ async def score_jobs(
                 fit=fit,
                 interview=interview,
                 must_haves=must_haves,
-                location=nouls["location"].noul,
+                location=nouls["location"].noul if location_known else None,
                 seniority=choices["seniority"].choice,
                 input_tokens=response.usage.input_tokens or 0,
             )
@@ -254,5 +303,13 @@ async def score_jobs(
             log.warning("Jev request for job %s failed: %r", job["id"], e)
             return job, e
 
-    for next_done in asyncio.as_completed([one(job) for job in jobs]):
-        yield await next_done
+    tasks = [asyncio.create_task(one(job)) for job in jobs]
+    try:
+        for next_done in asyncio.as_completed(tasks):
+            yield await next_done
+    finally:
+        # A cancelled worker or closed generator must not leave paid requests running.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)

@@ -12,8 +12,10 @@ start from cron, launchd or a systemd timer.
 import argparse
 import asyncio
 import fcntl
+import hashlib
 import json
 import logging
+import math
 import signal
 import sqlite3
 import time
@@ -62,6 +64,22 @@ class Options:
     himalayas_ttl_days: float = 7.0
     trigger: str = "cli"
 
+    def __post_init__(self) -> None:
+        for name in ("budget_seconds", "himalayas_ttl_days", "min_interval_hours"):
+            value = getattr(self, name)
+            if (
+                not math.isfinite(value)
+                or value < 0
+                or (name != "min_interval_hours" and value == 0)
+            ):
+                raise ValueError(
+                    f"{name} must be finite and {'nonnegative' if name == 'min_interval_hours' else 'positive'}"
+                )
+        if not isinstance(self.sr_detail_cap, int) or self.sr_detail_cap < 0:
+            raise ValueError("sr_detail_cap must be a nonnegative integer")
+        if self.only - set(PROVIDERS):
+            raise ValueError("only contains an unknown provider")
+
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -102,7 +120,8 @@ async def ingest(
     opts: Options, transport: httpx.AsyncBaseTransport | None = None
 ) -> dict[str, Any]:
     """One run. Call through `run_once`, which holds the lock."""
-    boards: list[dict[str, Any]] = tomllib.loads(opts.boards.read_text())["board"]
+    all_boards: list[dict[str, Any]] = tomllib.loads(opts.boards.read_text())["board"]
+    boards = all_boards
     if opts.only:
         boards = [b for b in boards if b["provider"] in opts.only]
     use_himalayas = opts.himalayas is not None and (
@@ -113,10 +132,39 @@ async def ingest(
         if opts.himalayas and use_himalayas
         else {}
     )
+    if any(b["provider"] not in PROVIDERS[:-1] for b in all_boards):
+        raise ValueError("boards contains an unsupported ATS provider")
+    if len({(b["provider"], b["id"]) for b in all_boards}) != len(all_boards):
+        raise ValueError("boards contains duplicate provider/board pairs")
+    if searches:
+        pages = searches.get("pages", 3)
+        if not isinstance(pages, int) or not 1 <= pages <= 100:
+            raise ValueError("Himalayas pages must be an integer from 1 to 100")
+        for name in ("queries", "countries"):
+            values = searches.get(name)
+            if (
+                not isinstance(values, list)
+                or not values
+                or any(not isinstance(v, str) or not v.strip() for v in values)
+            ):
+                raise ValueError(f"Himalayas {name} must be a nonempty list of strings")
+            searches[name] = list(dict.fromkeys(values))
+    if not boards and not searches:
+        raise ValueError("no sources selected")
+    scope_key = hashlib.sha256(
+        normalize.canonical_json(
+            {
+                "boards": boards,
+                "searches": searches,
+                "normalizer": normalize.NORMALIZER_VERSION,
+            }
+        ).encode()
+    ).hexdigest()
 
     conn = store.connect(opts.db)
     try:
-        last = store.last_success_started_at(conn)
+        store.reconcile_boards(conn, all_boards)
+        last = store.last_success_started_at(conn, scope_key)
         if last and not opts.force:
             age = datetime.now(UTC) - datetime.fromisoformat(last)
             if age < timedelta(hours=opts.min_interval_hours):
@@ -124,7 +172,11 @@ async def ingest(
                 return {
                     "skipped": f"last good run started {hours:.1f} h ago (< {opts.min_interval_hours:g} h)"
                 }
-        return await _run(conn, opts, boards, searches, transport)
+        try:
+            return await _run(conn, opts, boards, searches, transport, scope_key)
+        except BaseException:
+            store.fail_running(conn, now_iso())
+            raise
     finally:
         conn.close()
 
@@ -135,10 +187,11 @@ async def _run(
     boards: list[dict[str, Any]],
     searches: dict[str, Any],
     transport: httpx.AsyncBaseTransport | None,
+    scope_key: str,
 ) -> dict[str, Any]:
     now = now_iso()
     started = time.monotonic()
-    run_id = store.start_run(conn, now, opts.trigger)
+    run_id = store.start_run(conn, now, opts.trigger, scope_key)
     by_key = {(b["provider"], b["id"]): b for b in boards}
     stored_sr = {
         b["id"]: store.stored_raw(conn, "smartrecruiters", b["id"])
@@ -173,17 +226,40 @@ async def _run(
                 status="not_modified", seen=open_jobs, unchanged=open_jobs
             )
         else:
+            # Invalidate before writing any fetched rows. A crash between committing
+            # data and saving its replacement ETag must only cause an extra full fetch.
+            store.save_validators(
+                conn, {}, normalize.NORMALIZER_VERSION, now, bf.provider, bf.board
+            )
             applied = store.apply_board(
                 conn, bf.provider, bf.board, bf.items, build, now, complete=bf.complete
             )
             if bf.status == "failed":
                 store.mark_failed(conn, bf.provider, bf.board, now)
-            elif bf.complete and applied.status == "ok" and bf.validators:
-                # only now that the data is committed; a suspect listing is re-fetched
-                store.save_validators(
-                    conn, bf.validators, normalize.NORMALIZER_VERSION, now
-                )
-        status = "failed" if bf.status == "failed" else applied.status
+            # Any non-304 response supersedes the prior cache, including a failure,
+            # missing ETag, suspect inventory or multi-page transition.
+            store.save_validators(
+                conn,
+                bf.validators
+                if bf.complete and applied.status == "ok" and bf.status == "ok"
+                else {},
+                normalize.NORMALIZER_VERSION,
+                now,
+                bf.provider,
+                bf.board,
+            )
+        status = (
+            "failed"
+            if bf.status == "failed"
+            else "partial"
+            if bf.status == "partial" and applied.status == "ok"
+            else applied.status
+        )
+        if status == "partial":
+            conn.execute(
+                "UPDATE board_state SET last_status = 'partial' WHERE provider = ? AND board = ?",
+                (bf.provider, bf.board),
+            )
         _count(totals, statuses, status, applied, bf.detail_calls)
         if bf.error:
             errors.append(
@@ -197,13 +273,13 @@ async def _run(
         min_gap=0.25,
         host_limits={"himalayas.app": 1},
         host_gaps={"himalayas.app": 1.0},
-        deadline=time.monotonic() + opts.budget_seconds,
+        deadline=started + opts.budget_seconds,
         transport=transport,
     )
     himalayas_jobs: dict[str, Item] = {}
     async with fetcher as f:
-        tasks = [_fetch(f, b, validators, stored_sr, opts) for b in boards]
-        tasks += [
+        coroutines = [_fetch(f, b, validators, stored_sr, opts) for b in boards]
+        coroutines += [
             guarded(
                 fetch_himalayas(f, query, country, searches.get("pages", 3)),
                 "himalayas",
@@ -214,47 +290,95 @@ async def _run(
             for query in searches.get("queries", [])
             for country in searches.get("countries", [])
         ]
-        for next_done in asyncio.as_completed(tasks):
-            bf = await next_done
-            if bf.provider == "himalayas":
-                for item in bf.items:
-                    himalayas_jobs.setdefault(item[0], item)
-                statuses["search_failed" if bf.status == "failed" else "search_ok"] += 1
-                if bf.error:
-                    errors.append(
-                        {"provider": "himalayas", "unit": bf.unit, "error": bf.error}
+        tasks = [asyncio.create_task(coro) for coro in coroutines]
+        try:
+            for next_done in asyncio.as_completed(tasks):
+                bf = await next_done
+                if bf.provider == "himalayas":
+                    for item in bf.items:
+                        himalayas_jobs.setdefault(item[0], item)
+                    statuses[f"search_{bf.status}"] += 1
+                    if bf.error:
+                        errors.append(
+                            {
+                                "provider": "himalayas",
+                                "unit": bf.unit,
+                                "error": bf.error,
+                            }
+                        )
+                    store.log_board(
+                        conn,
+                        run_id,
+                        _board_log(bf, bf.status, store.Applied("partial")),
                     )
-                store.log_board(
-                    conn, run_id, _board_log(bf, bf.status, store.Applied("partial"))
-                )
-                continue
-            try:
-                await asyncio.to_thread(finish_board, bf)
-            except Exception as e:  # noqa: BLE001 - e.g. a normalizer bug on one board
-                statuses["failed"] += 1
-                errors.append(
-                    {
-                        "provider": bf.provider,
-                        "board": bf.board,
-                        "error": f"store: {e!r}",
-                    }
-                )
+                    continue
+                try:
+                    worker = asyncio.create_task(asyncio.to_thread(finish_board, bf))
+                    try:
+                        await asyncio.shield(worker)
+                    except asyncio.CancelledError:
+                        # to_thread cannot stop an SQLite transaction. Join it before
+                        # closing the connection or releasing the run lock.
+                        await worker
+                        raise
+                except Exception as e:  # noqa: BLE001 - e.g. a normalizer bug on one board
+                    statuses["failed"] += 1
+                    store.mark_failed(conn, bf.provider, bf.board, now)
+                    store.save_validators(
+                        conn,
+                        {},
+                        normalize.NORMALIZER_VERSION,
+                        now,
+                        bf.provider,
+                        bf.board,
+                    )
+                    bf.fail(f"store: {e!r}")
+                    store.log_board(
+                        conn, run_id, _board_log(bf, "failed", store.Applied("partial"))
+                    )
+                    errors.append(
+                        {
+                            "provider": bf.provider,
+                            "board": bf.board,
+                            "error": bf.error or "store failed",
+                        }
+                    )
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         http = f.totals()
 
     if searches:
-        _store_himalayas(conn, himalayas_jobs, now, opts, totals)
+        _store_himalayas(
+            conn,
+            himalayas_jobs,
+            now,
+            opts,
+            totals,
+            allow_unseen=not statuses["search_failed"]
+            and not statuses["search_partial"],
+        )
 
-    failed = statuses["failed"]
-    status = "ok" if failed == 0 else "failed" if failed >= len(boards) else "partial"
+    failed = statuses["failed"] + statuses["search_failed"]
+    partial = statuses["partial"] + statuses["suspect"] + statuses["search_partial"]
+    succeeded = statuses["ok"] + statuses["not_modified"] + statuses["search_ok"]
+    status = (
+        "failed"
+        if failed and not succeeded and not partial
+        else "partial"
+        if failed or partial
+        else "ok"
+    )
     store.finish_run(
         conn,
         run_id,
         {
             "finished_at": now_iso(),
             "status": status,
-            "boards_total": len(boards),
-            "boards_ok": statuses["ok"] + statuses["not_modified"],
-            "boards_partial": statuses["partial"] + statuses["suspect"],
+            "boards_total": failed + partial + succeeded,
+            "boards_ok": succeeded,
+            "boards_partial": partial,
             "boards_failed": failed,
             "jobs_seen": totals["seen"],
             "jobs_new": totals["new"],
@@ -321,6 +445,8 @@ def _store_himalayas(
     now: str,
     opts: Options,
     totals: Counter[str],
+    *,
+    allow_unseen: bool,
 ) -> None:
     """Search results are grouped by employer and never close jobs by absence; jobs close
     once expired or unseen for `himalayas_ttl_days`."""
@@ -341,7 +467,11 @@ def _store_himalayas(
             totals[name] += getattr(applied, name)
     unseen_since = datetime.now(UTC) - timedelta(days=opts.himalayas_ttl_days)
     totals["closed"] += store.expire_unseen(
-        conn, "himalayas", now, unseen_since.isoformat(timespec="seconds")
+        conn,
+        "himalayas",
+        now,
+        unseen_since.isoformat(timespec="seconds"),
+        allow_unseen=allow_unseen,
     )
 
 
@@ -444,7 +574,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--no-conditional", action="store_true", help="don't send If-None-Match (ETags)"
     )
     parser.add_argument("--himalayas-ttl-days", type=float, default=7.0)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    for name in (
+        "loop_minutes",
+        "budget_seconds",
+        "himalayas_ttl_days",
+        "min_interval_hours",
+    ):
+        value = getattr(args, name)
+        if (
+            not math.isfinite(value)
+            or value < 0
+            or (name != "min_interval_hours" and value == 0)
+        ):
+            parser.error(
+                f"--{name.replace('_', '-')} must be finite and {'nonnegative' if name == 'min_interval_hours' else 'positive'}"
+            )
+    if args.sr_detail_cap < 0:
+        parser.error("--sr-detail-cap must be nonnegative")
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:

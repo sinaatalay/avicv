@@ -14,16 +14,19 @@ Only `jobs-ingest` writes it, through `connect`; the API opens it read-only.
   or haven't been seen for a while instead.
 """
 
+import hashlib
+import json
 import sqlite3
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .normalize import COLUMNS, Record, unpack
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -94,6 +97,8 @@ CREATE TABLE IF NOT EXISTS board_state (
     last_status      TEXT NOT NULL,       -- ok | not_modified | partial | suspect | failed
     last_verified_at TEXT,                -- last complete fetch: all open jobs were listed
     suspect_since    TEXT,                -- closures held back until a second fetch agrees
+    suspect_missing  TEXT,                -- digest of the exact missing source IDs
+    configured       INTEGER NOT NULL DEFAULT 1,
     open_jobs        INTEGER,
     PRIMARY KEY (provider, board)
 );
@@ -104,7 +109,9 @@ CREATE TABLE IF NOT EXISTS http_cache (
     url                TEXT PRIMARY KEY,
     etag               TEXT NOT NULL,
     normalizer_version TEXT NOT NULL,
-    saved_at           TEXT NOT NULL
+    saved_at           TEXT NOT NULL,
+    provider           TEXT,
+    board              TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ingest_runs (
@@ -113,6 +120,7 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
     finished_at    TEXT,
     status         TEXT NOT NULL,          -- running | ok | partial | failed | abandoned
     trigger        TEXT,                   -- cli | loop
+    scope_key      TEXT,                   -- exact provider/configuration/normalizer scope
     boards_total   INTEGER,
     boards_ok      INTEGER,
     boards_partial INTEGER,
@@ -174,13 +182,15 @@ WHERE jobs.content_hash IS NOT excluded.content_hash
 """
 _BOARD_STATE = """
 INSERT INTO board_state
-    (provider, board, last_attempt_at, last_status, last_verified_at, suspect_since, open_jobs)
-VALUES (:provider, :board, :now, :status, :verified_at, :suspect_since, :open_jobs)
+    (provider, board, last_attempt_at, last_status, last_verified_at, suspect_since, suspect_missing, open_jobs)
+VALUES (:provider, :board, :now, :status, :verified_at, :suspect_since, :suspect_missing, :open_jobs)
 ON CONFLICT (provider, board) DO UPDATE SET
     last_attempt_at = excluded.last_attempt_at,
     last_status = excluded.last_status,
     last_verified_at = coalesce(excluded.last_verified_at, board_state.last_verified_at),
     suspect_since = excluded.suspect_since,
+    suspect_missing = excluded.suspect_missing,
+    configured = 1,
     open_jobs = excluded.open_jobs
 """
 SUSPECT_MIN_OPEN = 20  # boards this big may not lose more than half their jobs at once
@@ -212,15 +222,31 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
-    init_schema(conn)
+    try:
+        init_schema(conn)
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version not in {0, SCHEMA_VERSION}:
-        msg = f"jobs.db has schema version {version}, not {SCHEMA_VERSION}; delete it and re-run"
+    if version not in {0, 1, SCHEMA_VERSION}:
+        msg = f"jobs.db has unsupported schema version {version}; use a compatible application version"
         raise RuntimeError(msg)
+    if version == 1:
+        with transaction(conn):
+            conn.execute("ALTER TABLE board_state ADD COLUMN suspect_missing TEXT")
+            conn.execute(
+                "ALTER TABLE board_state ADD COLUMN configured INTEGER NOT NULL DEFAULT 1"
+            )
+            conn.execute("ALTER TABLE http_cache ADD COLUMN provider TEXT")
+            conn.execute("ALTER TABLE http_cache ADD COLUMN board TEXT")
+            conn.execute("ALTER TABLE ingest_runs ADD COLUMN scope_key TEXT")
+            # Old ETags have no source ownership. Fetch fresh bodies once before caching again.
+            conn.execute("DELETE FROM http_cache")
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.executescript(SCHEMA)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -269,7 +295,7 @@ def apply_board(
         )
     }
     state = conn.execute(
-        "SELECT suspect_since FROM board_state WHERE provider = ? AND board = ?",
+        "SELECT suspect_since, suspect_missing FROM board_state WHERE provider = ? AND board = ?",
         (provider, board),
     ).fetchone()
     result = Applied(status="ok" if complete else "partial")
@@ -309,17 +335,21 @@ def apply_board(
     }
     missing = [existing[sid][0] for sid in open_before - fetched]
     suspect_since = state["suspect_since"] if state else None
+    suspect_missing = state["suspect_missing"] if state else None
     close = False
     if complete and missing:
         mass_drop = (
             len(open_before) >= SUSPECT_MIN_OPEN and len(missing) > len(open_before) / 2
         )
-        if (not fetched or mass_drop) and suspect_since is None:
-            result.status, suspect_since = "suspect", now
+        signature = hashlib.sha256(
+            json.dumps(sorted(open_before - fetched)).encode()
+        ).hexdigest()
+        if (not fetched or mass_drop) and signature != suspect_missing:
+            result.status, suspect_since, suspect_missing = "suspect", now, signature
         else:
-            close, suspect_since = True, None
+            close, suspect_since, suspect_missing = True, None, None
     elif complete:
-        suspect_since = None
+        suspect_since, suspect_missing = None, None
 
     with transaction(conn):
         conn.executemany(_UPSERT, upserts)
@@ -349,6 +379,7 @@ def apply_board(
                 "status": result.status,
                 "verified_at": now if complete and result.status == "ok" else None,
                 "suspect_since": suspect_since,
+                "suspect_missing": suspect_missing,
                 "open_jobs": open_jobs,
             },
         )
@@ -372,6 +403,7 @@ def mark_not_modified(
             "status": "not_modified",
             "verified_at": now,
             "suspect_since": None,
+            "suspect_missing": None,
             "open_jobs": open_jobs,
         },
     )
@@ -388,13 +420,23 @@ def mark_failed(conn: sqlite3.Connection, provider: str, board: str, now: str) -
 
 
 def expire_unseen(
-    conn: sqlite3.Connection, provider: str, now: str, unseen_since: str
+    conn: sqlite3.Connection,
+    provider: str,
+    now: str,
+    unseen_since: str,
+    *,
+    allow_unseen: bool = True,
 ) -> int:
     """Close a search-sourced provider's jobs past their expiry or not seen recently."""
     return conn.execute(
         "UPDATE jobs SET closed_at = :now WHERE provider = :provider AND closed_at IS NULL "
-        "AND (last_seen < :unseen_since OR (expires_at IS NOT NULL AND expires_at < :now))",
-        {"now": now, "provider": provider, "unseen_since": unseen_since},
+        "AND ((:allow_unseen AND last_seen < :unseen_since) OR (expires_at IS NOT NULL AND expires_at < :now))",
+        {
+            "now": now,
+            "provider": provider,
+            "unseen_since": unseen_since,
+            "allow_unseen": allow_unseen,
+        },
     ).rowcount
 
 
@@ -413,15 +455,33 @@ def save_validators(
     validators: dict[str, str],
     normalizer_version: str,
     now: str,
+    provider: str,
+    board: str,
 ) -> None:
-    conn.executemany(
-        "INSERT OR REPLACE INTO http_cache (url, etag, normalizer_version, saved_at) "
-        "VALUES (?, ?, ?, ?)",
-        [(url, etag, normalizer_version, now) for url, etag in validators.items()],
-    )
+    """Replace a board's validator set, including when a new response has no ETag.
+
+    Never retain an old first-page validator after a partial/multi-page transition.
+    """
+    with transaction(conn):
+        conn.execute(
+            "DELETE FROM http_cache WHERE provider = ? AND board = ?", (provider, board)
+        )
+        conn.executemany(
+            "INSERT OR REPLACE INTO http_cache (url, etag, normalizer_version, saved_at, provider, board) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (url, etag, normalizer_version, now, provider, board)
+                for url, etag in validators.items()
+            ],
+        )
 
 
-def start_run(conn: sqlite3.Connection, started_at: str, trigger: str) -> int:
+def start_run(
+    conn: sqlite3.Connection,
+    started_at: str,
+    trigger: str,
+    scope_key: str | None = None,
+) -> int:
     """Log a new run. Call while holding the run lock: any run still `running` is a
     leftover from a killed process."""
     conn.execute(
@@ -429,8 +489,8 @@ def start_run(conn: sqlite3.Connection, started_at: str, trigger: str) -> int:
         (started_at,),
     )
     cursor = conn.execute(
-        "INSERT INTO ingest_runs (started_at, status, trigger) VALUES (?, 'running', ?)",
-        (started_at, trigger),
+        "INSERT INTO ingest_runs (started_at, status, trigger, scope_key) VALUES (?, 'running', ?, ?)",
+        (started_at, trigger, scope_key),
     )
     return cursor.lastrowid or 0
 
@@ -459,12 +519,101 @@ def fail_running(conn: sqlite3.Connection, now: str) -> None:
     )
 
 
-def last_success_started_at(conn: sqlite3.Connection) -> str | None:
+def last_success_started_at(
+    conn: sqlite3.Connection, scope_key: str | None = None
+) -> str | None:
+    """Only the latest run, with exactly this scope, may suppress another attempt.
+
+    A partial or failed retry invalidates an earlier success; legacy runs with unknown
+    scope cannot suppress a configured run.
+    """
     row = conn.execute(
-        "SELECT max(started_at) FROM ingest_runs "
-        "WHERE status IN ('ok', 'partial') AND finished_at IS NOT NULL"
+        "SELECT started_at, status, finished_at, scope_key FROM ingest_runs ORDER BY run_id DESC LIMIT 1"
     ).fetchone()
-    return row[0] if row else None
+    return (
+        row["started_at"]
+        if row
+        and row["status"] == "ok"
+        and row["finished_at"]
+        and row["scope_key"] == scope_key
+        else None
+    )
+
+
+def reconcile_boards(conn: sqlite3.Connection, boards: list[dict[str, Any]]) -> None:
+    """Removed ATS boards remain available but are explicitly no longer verified.
+
+    Reconcile against the full configured inventory, even on a --only run. Search
+    sources use per-job last_seen/expiry instead of an exhaustive board inventory.
+    """
+    active = {(b["provider"], b["id"]) for b in boards}
+    for row in conn.execute(
+        "SELECT provider, board FROM board_state WHERE provider != 'himalayas'"
+    ).fetchall():
+        conn.execute(
+            "UPDATE board_state SET configured = ? WHERE provider = ? AND board = ?",
+            (
+                int((row["provider"], row["board"]) in active),
+                row["provider"],
+                row["board"],
+            ),
+        )
+
+
+def source_health(
+    conn: sqlite3.Connection, stale_after_hours: float = 24.0
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Conservative board freshness without closing jobs on unavailable sources.
+
+    Works with the previous schema while the independent ingester has not upgraded
+    it yet. ATS verification is board-wide; search jobs are verified individually.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(hours=stale_after_hours)).isoformat()
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in conn.execute("SELECT * FROM board_state"):
+        state = dict(row)
+        provider, board = state["provider"], state["board"]
+        configured = bool(state.get("configured", 1))
+        verified = state["last_verified_at"]
+        status = state["last_status"] if configured else "unconfigured"
+        out[(provider, board)] = {
+            "provider": provider,
+            "board": board,
+            "status": status,
+            "configured": configured,
+            "last_attempt_at": state["last_attempt_at"],
+            "last_verified_at": verified,
+            "stale": status not in {"ok", "not_modified"}
+            or not verified
+            or verified < cutoff,
+        }
+    # A successful bounded search is not a complete board inventory. Its job-level
+    # last_seen is exposed separately; the latest search errors still mark the source.
+    latest_search = conn.execute(
+        "SELECT status FROM ingest_board_runs WHERE provider = 'himalayas' "
+        "AND run_id = (SELECT max(run_id) FROM ingest_board_runs WHERE provider = 'himalayas')"
+    ).fetchall()
+    search_statuses = {r["status"] for r in latest_search}
+    search_status = (
+        "ok"
+        if search_statuses == {"ok"}
+        else "failed"
+        if search_statuses == {"failed"}
+        else "partial"
+    )
+    for row in conn.execute(
+        "SELECT board, max(last_seen) AS last_seen FROM jobs WHERE provider = 'himalayas' AND closed_at IS NULL GROUP BY board"
+    ):
+        out[("himalayas", row["board"])] = {
+            "provider": "himalayas",
+            "board": row["board"],
+            "status": search_status,
+            "configured": True,
+            "last_attempt_at": None,
+            "last_verified_at": row["last_seen"],
+            "stale": search_status != "ok" or row["last_seen"] < cutoff,
+        }
+    return out
 
 
 def prune_logs(conn: sqlite3.Connection, before: str) -> None:

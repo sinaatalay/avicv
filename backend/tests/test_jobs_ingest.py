@@ -1,5 +1,6 @@
 """`jobs-ingest` end to end, against fake provider APIs that serve tests/fixtures/jobs."""
 
+import asyncio
 import hashlib
 import json
 import sqlite3
@@ -12,7 +13,7 @@ import httpx2 as httpx
 import pytest
 
 from backend.config import get_settings
-from backend.jobs.ingest import Options, parse_args, run_lock, run_once
+from backend.jobs.ingest import Options, ingest, parse_args, run_lock, run_once
 
 FIXTURES = Path(__file__).parent / "fixtures" / "jobs"
 GREENHOUSE = "boards-api.greenhouse.io/v1/boards/acme/jobs"
@@ -208,3 +209,147 @@ def test_cli_defaults_come_from_settings(
         assert args.loop_minutes == 15
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--loop-minutes", "0"],
+        ["--loop-minutes", "nan"],
+        ["--budget-seconds", "0"],
+        ["--budget-seconds", "inf"],
+        ["--min-interval-hours", "-1"],
+        ["--himalayas-ttl-days", "0"],
+        ["--sr-detail-cap", "-1"],
+    ],
+)
+def test_cli_rejects_unsafe_limits(args: list[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(args)
+
+
+def test_himalayas_failure_is_a_failed_run_and_retries_without_force(
+    opts: Options,
+) -> None:
+    opts = replace(opts, only=frozenset({"himalayas"}))
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    for _ in range(2):
+        result = run_once(opts, transport)
+        assert result["status"] == "failed"
+        assert result["boards"]["search_failed"] == 1
+    assert calls == 2
+    assert query(opts, "SELECT boards_failed FROM ingest_runs")[0]["boards_failed"] == 1
+
+
+def test_provider_limited_success_does_not_suppress_a_full_run(opts: Options) -> None:
+    sources = FakeSources()
+    transport = httpx.MockTransport(sources)
+    assert (
+        run_once(replace(opts, only=frozenset({"greenhouse"})), transport)["status"]
+        == "ok"
+    )
+    result = run_once(opts, transport)
+    assert result["status"] == "ok"
+    assert sources.calls[SR_LIST] > 0
+
+
+def test_pending_smartrecruiters_details_are_partial_and_retryable(
+    opts: Options,
+) -> None:
+    sources = FakeSources()
+    transport = httpx.MockTransport(sources)
+    limited = replace(opts, only=frozenset({"smartrecruiters"}), sr_detail_cap=0)
+    first = run_once(limited, transport)
+    assert first["status"] == "partial"
+    state = query(opts, "SELECT last_status FROM board_state")[0]
+    assert state["last_status"] == "partial"
+    assert run_once(replace(limited, sr_detail_cap=50), transport)["status"] == "ok"
+    assert sources.calls["sr_detail"] == 2
+
+
+def test_suspect_inventory_clears_etag_and_needs_identical_confirmation(
+    opts: Options,
+) -> None:
+    sources = FakeSources()
+    transport = httpx.MockTransport(sources)
+    opts = replace(opts, only=frozenset({"greenhouse"}))
+    assert run_once(opts, transport)["status"] == "ok"
+    sources.payloads[GREENHOUSE] = {"jobs": [], "meta": {"total": 0}}
+    suspect = run_once(replace(opts, force=True), transport)
+    assert suspect["status"] == "partial"
+    assert query(opts, "SELECT count(*) n FROM http_cache")[0]["n"] == 0
+    confirmed = run_once(opts, transport)
+    assert confirmed["status"] == "ok"
+    assert confirmed["jobs_closed"] == 3
+
+
+def test_himalayas_outage_does_not_expire_jobs_by_absence(opts: Options) -> None:
+    sources = FakeSources()
+    opts = replace(opts, only=frozenset({"himalayas"}))
+    run_once(opts, httpx.MockTransport(sources))
+    conn = sqlite3.connect(opts.db)
+    conn.execute(
+        "UPDATE jobs SET last_seen = '2020-01-01T00:00:00+00:00', expires_at = NULL"
+    )
+    conn.commit()
+    conn.close()
+    run_once(
+        replace(opts, force=True),
+        httpx.MockTransport(lambda request: httpx.Response(404)),
+    )
+    assert (
+        query(opts, "SELECT count(*) n FROM jobs WHERE closed_at IS NULL")[0]["n"] == 2
+    )
+
+
+def test_budget_cancels_inflight_requests_and_finishes_run(opts: Options) -> None:
+    active = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal active
+        active += 1
+        try:
+            await asyncio.Event().wait()
+            return httpx.Response(200)
+        finally:
+            active -= 1
+
+    result = run_once(replace(opts, budget_seconds=0.05), httpx.MockTransport(handler))
+    assert result["status"] == "failed"
+    assert result["wall_seconds"] < 1
+    assert active == 0
+    assert query(opts, "SELECT status FROM ingest_runs")[0]["status"] == "failed"
+
+
+def test_external_cancellation_cleans_up_requests_and_run(opts: Options) -> None:
+    active = 0
+
+    async def scenario() -> None:
+        began = asyncio.Event()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal active
+            active += 1
+            began.set()
+            try:
+                await asyncio.Event().wait()
+                return httpx.Response(200)
+            finally:
+                active -= 1
+
+        task = asyncio.create_task(ingest(opts, httpx.MockTransport(handler)))
+        await began.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+    assert active == 0
+    assert query(opts, "SELECT status FROM ingest_runs")[0]["status"] == "failed"

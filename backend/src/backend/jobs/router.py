@@ -6,13 +6,15 @@ empty results (`synced: false`) instead of an error.
 
 import re
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..config import Settings, get_settings
 from ..db import connect
+from .store import source_health
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -20,7 +22,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 Geo = Literal["us_ca", "remote_unspecified", "other", "unknown", "any"]
 
 _SUMMARY_COLUMNS = (
-    "j.id, j.provider, j.company, j.title, j.locations_text, j.geo_bucket, j.workplace_type, "
+    "j.id, j.provider, j.board, j.last_seen, j.company, j.title, j.locations_text, j.geo_bucket, j.workplace_type, "
     "j.employment_type, j.posted_at, j.apply_url, j.source_url, j.salary_min, j.salary_max, "
     "j.salary_currency, j.salary_interval"
 )
@@ -42,6 +44,9 @@ class JobSummary(BaseModel):
     salary_max: float | None
     salary_currency: str | None
     salary_interval: str | None
+    source_status: str
+    source_verified_at: str | None
+    source_stale: bool
 
 
 class JobSearch(BaseModel):
@@ -56,6 +61,16 @@ class LastRun(BaseModel):
     finished_at: str | None
 
 
+class SourceHealth(BaseModel):
+    provider: str
+    board: str
+    status: str
+    configured: bool
+    last_attempt_at: str | None
+    last_verified_at: str | None
+    stale: bool
+
+
 class JobStats(BaseModel):
     synced: bool
     open_jobs: int
@@ -63,6 +78,8 @@ class JobStats(BaseModel):
     by_geo: dict[str, int]
     last_run: LastRun | None
     last_success_at: str | None
+    sources: list[SourceHealth] = Field(default_factory=list)
+    stale_sources: int = 0
 
 
 def _open(settings: Settings) -> sqlite3.Connection | None:
@@ -79,7 +96,10 @@ def _synced(conn: sqlite3.Connection) -> bool:
     return row is not None
 
 
-def _summary(row: sqlite3.Row) -> JobSummary:
+def _summary(
+    row: sqlite3.Row, health: dict[tuple[str, str], dict[str, Any]], stale_before: str
+) -> JobSummary:
+    source = health.get((row["provider"], row["board"]), {})
     return JobSummary(
         id=row["id"],
         provider=row["provider"],
@@ -95,6 +115,12 @@ def _summary(row: sqlite3.Row) -> JobSummary:
         salary_max=row["salary_max"],
         salary_currency=row["salary_currency"],
         salary_interval=row["salary_interval"],
+        source_status=source.get("status", "unknown"),
+        source_verified_at=row["last_seen"]
+        if row["provider"] == "himalayas"
+        else source.get("last_verified_at"),
+        source_stale=source.get("stale", True)
+        or (row["provider"] == "himalayas" and row["last_seen"] < stale_before),
     )
 
 
@@ -156,8 +182,13 @@ def search_jobs(
                 "ORDER BY j.first_seen DESC, j.id DESC LIMIT :limit",
                 params,
             ).fetchall()
+        freshness_hours = max(24, settings.jobs_refresh_hours * 2)
+        health = source_health(conn, freshness_hours)
+        cutoff = (datetime.now(UTC) - timedelta(hours=freshness_hours)).isoformat()
         return JobSearch(
-            synced=_synced(conn), total=total, jobs=[_summary(r) for r in rows]
+            synced=_synced(conn),
+            total=total,
+            jobs=[_summary(r, health, cutoff) for r in rows],
         )
     except sqlite3.OperationalError:  # created but not initialized yet
         return JobSearch(synced=False, total=0, jobs=[])
@@ -196,17 +227,26 @@ def job_stats(settings: SettingsDep) -> JobStats:
             "SELECT status, started_at, finished_at FROM ingest_runs ORDER BY run_id DESC LIMIT 1"
         ).fetchone()
         success = conn.execute(
-            "SELECT max(finished_at) FROM ingest_runs WHERE status IN ('ok', 'partial')"
+            "SELECT max(finished_at) FROM ingest_runs WHERE status = 'ok'"
         ).fetchone()[0]
+        synced = _synced(conn)
+        sources = [
+            SourceHealth(**state)
+            for state in source_health(
+                conn, max(24, settings.jobs_refresh_hours * 2)
+            ).values()
+        ]
     except sqlite3.OperationalError:
         return empty
     finally:
         conn.close()
     return JobStats(
-        synced=success is not None,
+        synced=synced,
         open_jobs=sum(by_provider.values()),
         by_provider=by_provider,
         by_geo=by_geo,
         last_run=LastRun(**dict(last)) if last else None,
         last_success_at=success,
+        sources=sources,
+        stale_sources=sum(source.stale for source in sources),
     )

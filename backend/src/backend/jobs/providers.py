@@ -3,6 +3,7 @@ whole board listing came back (every page answered, counts consistent), which is
 allows closing jobs that disappeared from it."""
 
 import asyncio
+import hashlib
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -10,6 +11,26 @@ from urllib.parse import quote
 
 from .http import DeadlineExceeded, Fetcher, FetchError, Response
 from .normalize import canonical_json, content_hash
+
+DETAIL_PROVENANCE_VERSION = 1
+
+
+def _list_signature(item: Any) -> str:
+    return hashlib.sha256(canonical_json(item).encode()).hexdigest()
+
+
+def _detail_payload(item: Any, previous: Any) -> dict[str, Any]:
+    """Keep old detail data and its *original* provenance until a refresh succeeds.
+
+    Legacy payloads lack proof of which list revision their detail belongs to, so
+    they are deliberately refreshed once, without discarding existing descriptions.
+    """
+    return {
+        "list": item,
+        "detail": previous.get("detail"),
+        "detail_provenance": previous.get("detail_provenance"),
+    }
+
 
 Item = tuple[str, Any, str]  # (source_id, raw payload, content_hash)
 
@@ -63,10 +84,14 @@ async def _single_page(
     f: Fetcher, bf: BoardFetch, url: str, validators: dict[str, str] | None
 ) -> Response | None:
     """GET a whole-board endpoint; None when it answered 304 (bf is then complete)."""
-    r = await f.get_json(url, headers=_conditional(validators, url))
+    conditional = _conditional(validators, url)
+    r = await f.get_json(url, headers=conditional)
     bf.account(r)
     bf.pages = 1
     if r.status == 304:
+        if not conditional:
+            bf.fail("unexpected 304 without a stored validator")
+            return None
         bf.not_modified, bf.complete, bf.status = True, True, "ok"
         return None
     if r.etag:
@@ -97,7 +122,9 @@ async def fetch_greenhouse(
         jobs = r.data["jobs"]
         bf.reported_total = (r.data.get("meta") or {}).get("total")
         bf.items = _items({str(j["id"]): j for j in jobs})
-        bf.complete = bf.reported_total in (None, len(jobs))
+        bf.complete = bf.reported_total in (None, len(jobs)) and len(bf.items) == len(
+            jobs
+        )
         bf.status = "ok" if bf.complete else "partial"
     except (FetchError, DeadlineExceeded) as e:
         return bf.fail(e)
@@ -126,7 +153,8 @@ async def fetch_ashby(
         bf.reported_total = len(jobs)
         listed = [j for j in jobs if j.get("isListed") is not False]  # respect unlisted
         bf.items = _items({str(j.get("id") or j.get("jobUrl")): j for j in listed})
-        bf.complete, bf.status = True, "ok"
+        bf.complete = len(bf.items) == len(listed)
+        bf.status = "ok" if bf.complete else "partial"
     except (FetchError, DeadlineExceeded) as e:
         return bf.fail(e)
     return bf
@@ -141,6 +169,8 @@ async def fetch_lever(
     """Lever ignores Accept-Encoding (about 15 KB per job, uncompressed), so a 304 saves
     the most here. With 1,000 per page every seed board is a single page; the 304
     shortcut is only trusted for single-page boards."""
+    if page_size <= 0:
+        raise ValueError("page_size must be positive")
     bf = BoardFetch("lever", board["id"], board["company"])
     host = board.get("host", "api.lever.co")  # EU employers use api.eu.lever.co
     base = (
@@ -161,6 +191,11 @@ async def fetch_lever(
             bf.account(r)
             bf.pages += 1
             if r.status == 304:
+                if not conditional or skip != 0:
+                    bf.items = _items(seen)
+                    return bf.fail(
+                        "unexpected 304 for an uncached or multi-page listing"
+                    )
                 bf.not_modified, bf.complete, bf.status = True, True, "ok"
                 return bf
             if r.status != 200 or not isinstance(r.data, list):
@@ -168,14 +203,23 @@ async def fetch_lever(
                 return bf.fail(f"HTTP {r.status} at skip={skip}")
             if r.etag:
                 bf.validators[url] = r.etag
+            before = len(seen)
             for job in r.data:
                 seen[str(job["id"])] = job
+            if len(seen) - before != len(r.data):
+                bf.items = _items(seen)
+                return bf.fail(
+                    f"duplicate posting IDs at skip={skip}; inventory changed during pagination"
+                )
             if len(r.data) < page_size:
                 break
             skip += page_size
         bf.items = _items(seen)
         bf.reported_total = len(seen)
         bf.complete, bf.status = True, "ok"
+        if bf.pages > 1:
+            # A first-page 304 cannot prove that subsequent pages are unchanged.
+            bf.validators.clear()
     except (FetchError, DeadlineExceeded) as e:
         bf.items = _items(seen)
         return bf.fail(e)
@@ -189,6 +233,8 @@ async def fetch_smartrecruiters(
     for its description. A stored detail is reused while the list item is unchanged; at
     most `detail_cap` new detail calls per company per run, newest postings first. The
     rest are stored without a description and filled in by later runs."""
+    if detail_cap < 0:
+        raise ValueError("detail_cap must be nonnegative")
     bf = BoardFetch("smartrecruiters", board["id"], board["company"])
     base = f"https://api.smartrecruiters.com/v1/companies/{quote(board['id'])}/postings"
     listed: dict[str, Any] = {}
@@ -207,8 +253,16 @@ async def fetch_smartrecruiters(
                     complete = False
                     bf.error = f"HTTP {r.status} at country={country} offset={offset}"
                     break
-                total = r.data.get("totalFound") or 0
-                content = r.data.get("content") or []
+                total, content = r.data.get("totalFound"), r.data.get("content")
+                if (
+                    not isinstance(total, int)
+                    or total < 0
+                    or not isinstance(content, list)
+                ):
+                    complete = False
+                    bf.error = "invalid SmartRecruiters inventory shape"
+                    total = 0
+                    break
                 for item in content:
                     listed[str(item["id"])] = item
                 offset += len(content)
@@ -225,8 +279,11 @@ async def fetch_smartrecruiters(
     need: list[str] = []
     for source_id, item in listed.items():
         previous = stored.get(source_id) or {}
-        unchanged = canonical_json(previous.get("list")) == canonical_json(item)
-        if previous.get("detail") and unchanged:
+        provenance = {
+            "version": DETAIL_PROVENANCE_VERSION,
+            "list_hash": _list_signature(item),
+        }
+        if previous.get("detail") and previous.get("detail_provenance") == provenance:
             raws[source_id] = previous
             bf.detail_reused += 1
         else:
@@ -234,34 +291,53 @@ async def fetch_smartrecruiters(
     need.sort(key=lambda s: listed[s].get("releasedDate") or "", reverse=True)
 
     async def detail(source_id: str) -> None:
-        old_detail = (stored.get(source_id) or {}).get("detail")
+        pending = _detail_payload(listed[source_id], stored.get(source_id) or {})
+        bf.detail_calls += 1
         try:
             r = await f.get_json(f"{base}/{source_id}")
         except (FetchError, DeadlineExceeded) as e:
-            raws[source_id] = {"list": listed[source_id], "detail": old_detail}
+            raws[source_id] = pending
+            bf.detail_deferred += 1
             bf.error = bf.error or f"detail {source_id}: {e}"
             return
-        bf.detail_calls += 1
         bf.detail_seconds += r.elapsed  # request time, not time queued for a host slot
         bf.requests += r.attempts
         bf.bytes_wire += r.bytes_wire
-        ok = r.status == 200 and isinstance(r.data, dict)
-        raws[source_id] = {
-            "list": listed[source_id],
-            "detail": r.data if ok else old_detail,
-        }
+        ok = (
+            r.status == 200
+            and isinstance(r.data, dict)
+            and str(r.data.get("id")) == source_id
+        )
+        if ok:
+            pending.update(
+                detail=r.data,
+                detail_provenance={
+                    "version": DETAIL_PROVENANCE_VERSION,
+                    "list_hash": _list_signature(listed[source_id]),
+                },
+            )
+        else:
+            bf.detail_deferred += 1
+            bf.error = (
+                bf.error
+                or f"detail {source_id}: HTTP {r.status}, invalid detail response"
+            )
+        raws[source_id] = pending
 
-    await asyncio.gather(*(detail(s) for s in need[:detail_cap]))
+    async with asyncio.TaskGroup() as group:
+        for source_id in need[:detail_cap]:
+            group.create_task(detail(source_id))
     for source_id in need[
         detail_cap:
     ]:  # an older detail if we have one, else list only
-        old_detail = (stored.get(source_id) or {}).get("detail")
-        raws[source_id] = {"list": listed[source_id], "detail": old_detail}
+        raws[source_id] = _detail_payload(
+            listed[source_id], stored.get(source_id) or {}
+        )
         bf.detail_deferred += 1
     bf.items = _items(raws)
     if not list_failed:
         bf.complete = complete
-        bf.status = "ok" if complete else "partial"
+        bf.status = "ok" if complete and not bf.detail_deferred else "partial"
     return bf
 
 
@@ -270,6 +346,8 @@ async def fetch_himalayas(
 ) -> BoardFetch:
     """One search slice. Search results are never a complete inventory, so a job missing
     from them must not be closed: `complete` stays False."""
+    if pages <= 0:
+        raise ValueError("pages must be positive")
     bf = BoardFetch("himalayas", "*", "Himalayas", unit=f"q={query} country={country}")
     try:
         for page in range(1, pages + 1):
@@ -287,7 +365,9 @@ async def fetch_himalayas(
             bf.pages += 1
             if r.status != 200 or not isinstance(r.data, dict):
                 return bf.fail(f"HTTP {r.status} at page {page}")
-            jobs = r.data.get("jobs") or []
+            jobs = r.data.get("jobs")
+            if not isinstance(jobs, list):
+                return bf.fail(f"no jobs array at page {page}")
             bf.reported_total = r.data.get("totalCount")
             bf.items += [(job["guid"], job, content_hash(job)) for job in jobs]
             if len(jobs) < (r.data.get("limit") or 20):

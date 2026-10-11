@@ -172,6 +172,29 @@ async def test_deadline_stops_new_requests() -> None:
             await f.get_json("https://a.test/jobs")
 
 
+async def test_deadline_cancels_inflight_and_queued_requests() -> None:
+    live = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal live
+        live += 1
+        try:
+            await asyncio.Event().wait()
+            return httpx.Response(200)
+        finally:
+            live -= 1
+
+    started = time.monotonic()
+    async with fetcher(handler, per_host=1, deadline=started + 0.03) as f:
+        results = await asyncio.gather(
+            *(f.get_json(f"https://a.test/{i}") for i in range(3)),
+            return_exceptions=True,
+        )
+    assert all(isinstance(result, DeadlineExceeded) for result in results)
+    assert live == 0
+    assert time.monotonic() - started < 0.5
+
+
 async def test_totals_count_attempts_and_bytes(sleeps: list[float]) -> None:
     statuses = iter([503, 200])
 

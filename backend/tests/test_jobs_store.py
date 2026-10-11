@@ -261,4 +261,94 @@ def test_runs_and_abandoned_runs(conn: sqlite3.Connection) -> None:
     assert status == {crashed: "abandoned", run: "running"}
     assert store.last_success_started_at(conn) is None
     store.finish_run(conn, run, {"finished_at": T1, "status": "partial"})
+    assert store.last_success_started_at(conn) is None
+    store.finish_run(conn, run, {"finished_at": T1, "status": "ok"})
     assert store.last_success_started_at(conn) == T1
+
+
+def test_mass_drop_confirmation_requires_the_same_missing_jobs(
+    conn: sqlite3.Connection,
+) -> None:
+    jobs = [job(str(i)) for i in range(25)]
+    apply(conn, jobs, T0)
+    assert apply(conn, jobs[:5], T1).status == "suspect"
+    # The count is identical, but these are different survivors. This is not confirmation.
+    assert apply(conn, jobs[5:10], T2).status == "suspect"
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM jobs WHERE closed_at IS NOT NULL"
+        ).fetchone()[0]
+        == 0
+    )
+    assert apply(conn, jobs[5:10], T3).closed == 20
+
+
+def test_legacy_schema_upgrade_preserves_job_identity_and_requires_new_confirmation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "jobs.db"
+    connection = store.connect(path)
+    apply(connection, [job("1")], T0)
+    apply(connection, [], T1)
+    before = dict(get(connection, "1"))
+    for table, column in (
+        ("board_state", "suspect_missing"),
+        ("board_state", "configured"),
+        ("http_cache", "provider"),
+        ("http_cache", "board"),
+        ("ingest_runs", "scope_key"),
+    ):
+        connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+    connection.execute(
+        "INSERT INTO http_cache VALUES ('https://example.test', 'old', '1', ?)", (T0,)
+    )
+    connection.execute("PRAGMA user_version = 1")
+    connection.close()
+
+    upgraded = store.connect(path)
+    try:
+        assert dict(get(upgraded, "1")) == before
+        assert upgraded.execute("SELECT count(*) FROM http_cache").fetchone()[0] == 0
+        assert apply(upgraded, [], T2).status == "suspect"
+        assert apply(upgraded, [], T3).closed == 1
+        upgraded.execute("INSERT INTO jobs_fts (jobs_fts) VALUES ('integrity-check')")
+    finally:
+        upgraded.close()
+
+
+def test_scope_and_failed_retry_do_not_reuse_old_success(
+    conn: sqlite3.Connection,
+) -> None:
+    run = store.start_run(conn, T0, "cli", "greenhouse-only")
+    store.finish_run(conn, run, {"finished_at": T1, "status": "ok"})
+    assert store.last_success_started_at(conn, "greenhouse-only") == T0
+    assert store.last_success_started_at(conn, "all-providers") is None
+    retry = store.start_run(conn, T2, "cli", "greenhouse-only")
+    store.finish_run(conn, retry, {"finished_at": T3, "status": "failed"})
+    assert store.last_success_started_at(conn, "greenhouse-only") is None
+
+
+def test_validator_replacement_removes_obsolete_pages_and_missing_etags(
+    conn: sqlite3.Connection,
+) -> None:
+    store.save_validators(
+        conn, {"page1": "v1", "page2": "v2"}, "1", T0, "lever", "acme"
+    )
+    store.save_validators(conn, {"page1": "v3"}, "1", T1, "lever", "acme")
+    assert store.load_validators(conn, "1") == {"page1": "v3"}
+    store.save_validators(conn, {}, "1", T2, "lever", "acme")
+    assert store.load_validators(conn, "1") == {}
+
+
+def test_removed_source_is_explicitly_stale_without_closing_jobs(
+    conn: sqlite3.Connection,
+) -> None:
+    apply(conn, [job("1")], T0)
+    store.reconcile_boards(conn, [])
+    assert get(conn, "1")["closed_at"] is None
+    health = store.source_health(conn)[("greenhouse", "acme")]
+    assert (health["status"], health["configured"], health["stale"]) == (
+        "unconfigured",
+        False,
+        True,
+    )

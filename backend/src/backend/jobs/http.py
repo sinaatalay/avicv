@@ -8,6 +8,7 @@ continuation of httpx.
 import asyncio
 import email.utils
 import json
+import math
 import random
 import time
 from collections import defaultdict
@@ -23,7 +24,7 @@ RETRYABLE_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 class DeadlineExceeded(Exception):
-    """The run's time budget ran out before a request could be sent or retried."""
+    """The run's time budget ran out while queued, requesting, or retrying."""
 
 
 class FetchError(Exception):
@@ -99,6 +100,22 @@ class Fetcher:
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         """`deadline` is a `time.monotonic()` value; `transport` lets tests mock HTTP."""
+        for name, value in {
+            "max_concurrency": max_concurrency,
+            "per_host": per_host,
+            "max_attempts": max_attempts,
+            **(host_limits or {}),
+        }.items():
+            if not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        for name, value in {
+            "min_gap": min_gap,
+            "backoff_base": backoff_base,
+            "max_retry_after": max_retry_after,
+            **(host_gaps or {}),
+        }.items():
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and nonnegative")
         self.per_host = per_host
         self.host_limits = host_limits or {}
         self.min_gap = min_gap
@@ -156,6 +173,23 @@ class Fetcher:
     ) -> Response:
         """GET and parse JSON. Retries network errors, 408, 425, 429 and 5xx; returns
         any other status (304, 404, ...) to the caller instead of raising."""
+        self._check_deadline()
+        remaining = None if self.deadline is None else self.deadline - time.monotonic()
+        timeout = asyncio.timeout(remaining)
+        try:
+            async with timeout:
+                return await self._get_json(url, params, headers)
+        except TimeoutError:
+            if timeout.expired():
+                raise DeadlineExceeded("run time budget exhausted") from None
+            raise
+
+    async def _get_json(
+        self,
+        url: str,
+        params: dict[str, Any] | None,
+        headers: dict[str, str] | None,
+    ) -> Response:
         host = urlsplit(url).hostname or ""
         stats = self.stats[host]
         attempt = 0

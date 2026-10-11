@@ -67,6 +67,8 @@ def test_before_the_first_sync(client: TestClient) -> None:
         "by_geo": {},
         "last_run": None,
         "last_success_at": None,
+        "sources": [],
+        "stale_sources": 0,
     }
 
 
@@ -139,3 +141,18 @@ def test_stats(client: TestClient, data_dir: Path) -> None:
     assert stats["by_geo"] == {"us_ca": 3, "other": 1}
     assert stats["last_run"] == {"status": "ok", "started_at": NOW, "finished_at": NOW}
     assert stats["last_success_at"] == NOW
+
+
+def test_failed_source_is_visible_as_stale_without_disappearing(
+    client: TestClient, data_dir: Path
+) -> None:
+    seed(data_dir / "jobs.db")
+    conn = store.connect(data_dir / "jobs.db")
+    store.mark_failed(conn, "greenhouse", "acme", NOW)
+    conn.close()
+    jobs = client.get("/jobs").json()["jobs"]
+    assert jobs
+    assert all(job["source_stale"] and job["source_status"] == "failed" for job in jobs)
+    stats = client.get("/jobs/stats").json()
+    assert stats["stale_sources"] == 1
+    assert stats["sources"][0]["last_verified_at"] == NOW

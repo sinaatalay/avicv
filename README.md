@@ -14,12 +14,24 @@ Upload in the browser and continue in your favorite coding agent, or the other w
 
 The website also includes **Ask AviCV**, a CopilotKit conversation with access to the same tools and Darwin agent discovery. Your CV processing and saved results survive page refreshes and server restarts.
 
+## How we use RenderCV
+
+[RenderCV](https://github.com/rendercv/rendercv) is an open-source CV builder that turns structured YAML content and configurable design settings into a PDF. It handles typography, alignment, and layout, so tailored CVs are ready to download without manual formatting.
+
+AviCV uses it in three steps:
+
+1. **Read your CV.** Extract the uploaded PDF into RenderCV's structured format, keeping your experience, education, skills, and contact details.
+2. **Recreate its design.** In the background, an AI agent adjusts RenderCV's fonts, spacing, margins, colors, and layout. It renders drafts, compares their page images with your original PDF, and saves the best usable design. This runs separately from job matching, so it doesn't hold up your results.
+3. **Tailor and render.** For each job, AviCV selects and rewrites relevant content with factual checks against your original CV, then renders a new PDF using the saved design. The same pipeline serves the website and MCP.
+
+The design is an approximation of your original. Review each tailored CV before applying.
+
 ## Tech stack
 
 - **Frontend:** SvelteKit, Svelte, and Bun.
 - **Backend:** FastAPI, Python, and SQLite.
 - **Job matching:** TypeSafe’s Jev.
-- **CV parsing and tailoring:** Gemini through OpenRouter, with RenderCV for PDF generation.
+- **CV parsing and tailoring:** Gemini through OpenRouter, with [RenderCV](https://github.com/rendercv/rendercv) for design and PDF generation.
 - **Agent experience:** FastAPI MCP, CopilotKit, and Darwin, integrated from [speedrun-amber](https://github.com/ziadgit/speedrun-amber).
 
 ## Run locally

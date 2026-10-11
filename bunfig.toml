@@ -1,0 +1,4 @@
+[run]
+# Run scripts and binaries (vite, svelte-kit, svelte-check) on the Bun runtime
+# instead of Node. adapter-bun requires `vite build` to run in Bun.
+bun = true

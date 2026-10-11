@@ -1,0 +1,48 @@
+:root {
+	color-scheme: light dark;
+
+	--color-bg: light-dark(#ffffff, #16181d);
+	--color-surface: light-dark(#f4f5f7, #20232a);
+	--color-border: light-dark(#e3e5ea, #2f333c);
+	--color-text: light-dark(#1c1e23, #e6e7ea);
+	--color-muted: light-dark(#5c6170, #a2a7b3);
+	--color-accent: light-dark(#d93400, #ff6a3d);
+
+	--font-body: system-ui, sans-serif;
+	--font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+	--content-width: 48rem;
+
+	font-family: var(--font-body);
+	line-height: 1.6;
+	color: var(--color-text);
+	background-color: var(--color-bg);
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+}
+
+a {
+	color: var(--color-accent);
+}
+
+code {
+	padding: 0.1em 0.35em;
+	border-radius: 0.25rem;
+	font-family: var(--font-mono);
+	font-size: 0.9em;
+	background-color: var(--color-surface);
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+}

@@ -9,10 +9,12 @@
 	import { timeSavingsSchema, type TimeSavings as TimeSavingsValue } from '#lib/time-savings.ts';
 	import { createTailorManager, type TailorStates } from '#lib/tailored-cvs.ts';
 	import { cachedMatches, readHistory, saveVisit, type HistoryEntry, type ViewPreferences } from '#lib/resume-history.ts';
+	import { workspaceStorage } from '#lib/workspace-history.ts';
 	import { retryResume, watchResume } from '../../resumes.remote.ts';
 	import type { PageProps } from './$types';
 
-	let { params }: PageProps = $props();
+	let { params, data: pageData }: PageProps = $props();
+	const storage = $derived(workspaceStorage(pageData.cacheId));
 	let category = $state<JobTab>('good');
 	let categoryChosen = $state(false);
 	let limits = $state({ good: 20, other: 20 });
@@ -60,34 +62,48 @@
 	$effect(() => {
 		const id = params.id;
 		tailoring = {};
-		const manager = createTailorManager(id, (states) => tailoring = states, { resumePath: resolve('/resumes/[id]', { id }) });
+		const manager = createTailorManager(id, (states) => tailoring = states, { storage, resumePath: resolve('/resumes/[id]', { id }) });
 		tailorManager = manager;
 		manager.restore();
-		return () => manager.dispose();
+		const refresh = () => { if (!document.hidden) void manager.refresh(); };
+		refresh();
+		window.addEventListener('focus', refresh);
+		document.addEventListener('visibilitychange', refresh);
+		const timer = setInterval(refresh, 15000);
+		return () => { manager.dispose(); clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+	});
+	$effect(() => {
+		const stream = result;
+		const refresh = () => { if (!document.hidden && terminal && !stream.loading) void stream.reconnect(); };
+		window.addEventListener('focus', refresh);
+		document.addEventListener('visibilitychange', refresh);
+		const timer = setInterval(refresh, 30000);
+		return () => { clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
 	});
 
 	function preferences(): ViewPreferences { return { category, categoryChosen, limits: { ...limits } }; }
 	function remember(results?: ResumeResults) {
-		const saved = saveVisit(params.id, preferences(), results);
+		const saved = saveVisit(params.id, preferences(), results, storage);
 		storageWarning = saved.warning;
 		cached = saved.entries.find((entry) => entry.id === params.id);
 	}
 
 	$effect(() => {
 		const id = params.id;
-		if (id === untrack(() => restoredId)) return;
-		const saved = readHistory();
+		const identity = `${pageData.cacheId}:${id}`;
+		if (identity === untrack(() => restoredId)) return;
+		const saved = readHistory(storage);
 		cached = saved.entries.find((entry) => entry.id === id);
 		category = cached?.category === 'other' ? 'other' : 'good';
 		categoryChosen = cached?.categoryChosen ?? false;
 		limits = cached?.limits ?? { good: 20, other: 20 };
 		lastView = undefined;
 		storageWarning = saved.warning;
-		restoredId = id;
+		restoredId = identity;
 		untrack(() => remember());
 	});
 	$effect(() => {
-		if (restoredId !== params.id || !data) return;
+		if (restoredId !== `${pageData.cacheId}:${params.id}` || !data) return;
 		lastView = { category, results: data };
 		untrack(() => remember(data));
 		if (!categoryChosen && category === 'good' && ['done', 'partial'].includes(data.resume.status)
@@ -128,7 +144,7 @@
 
 <div class="page-heading">
 	<h1>Your job matches</h1>
-	<p class="cv-summary"><span>{r?.filename ?? r?.cv?.name ?? 'Your saved CV'}</span><a href={resolve('/')}>Change CV</a></p>
+	<p class="cv-summary"><span>{r?.filename ?? r?.cv?.name ?? 'Your saved CV'}</span><a href={resolve('/')}>Change CV</a><a href={`/chat?resume=${encodeURIComponent(params.id)}`}>Ask AviCV</a></p>
 </div>
 
 <TimeSavings value={activeSavings} />

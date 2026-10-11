@@ -8,12 +8,23 @@ import { API_URL } from '$app/env/private';
  * this throws an error that renders the nearest error boundary.
  */
 export async function api(path: string, init?: RequestInit) {
-	const { fetch, request } = getRequestEvent();
+	const { fetch, request, locals } = getRequestEvent();
+	if (!locals.sessionCookie || !locals.workspaceId) error(503, 'Could not connect to your CVs. Please try again.');
 	const signal = init?.signal ?? request.signal;
+	const headers = new Headers(init?.headers);
+	// This app forwards exactly its own session, never other cookies or a caller's bearer token.
+	headers.set('cookie', `avicv_session=${locals.sessionCookie}`);
+	headers.delete('authorization');
+	if (!['GET', 'HEAD'].includes((init?.method ?? 'GET').toUpperCase())) {
+		for (const name of ['origin', 'sec-fetch-site']) {
+			const value = request.headers.get(name);
+			if (value) headers.set(name, value);
+		}
+	}
 	let response: Response;
 
 	try {
-		response = await fetch(new URL(path, API_URL), { ...init, signal });
+		response = await fetch(new URL(path, API_URL.endsWith('/') ? API_URL : `${API_URL}/`), { ...init, headers, signal });
 	} catch (cause) {
 		if (signal.aborted) throw cause;
 		console.error(`Could not reach the API at ${API_URL}`, cause);

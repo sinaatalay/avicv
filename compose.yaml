@@ -1,0 +1,20 @@
+services:
+  avicv:
+    build:
+      context: .
+      args:
+        APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+    ports:
+      - "8080:8080"
+    env_file:
+      - backend/.env
+    environment:
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+      PORT: "8080"
+      DATA_DIR: /app/backend/data
+    volumes:
+      - avicv-data:/app/backend/data
+    restart: unless-stopped
+    stop_grace_period: 15s
+volumes:
+  avicv-data:

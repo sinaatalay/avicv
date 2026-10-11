@@ -18,6 +18,17 @@ let tailoringReady = false;
 let tailorPosts = 0;
 let pdfDownloads = 0;
 const artifactId = 'c'.repeat(32);
+const sessionCookie = 'fixture-session-opaque-value';
+const workspaceId = '1'.repeat(32);
+const cacheDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionCookie));
+const cacheId = [...new Uint8Array(cacheDigest)].slice(0, 16).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+const historyKey = `avicv.workspace.${cacheId}.speedhack.resume-history.v1`;
+const tailorKey = `avicv.workspace.${cacheId}.speedhack.tailored-cvs.v1`;
+let agentUploaded = false;
+const agentResumeId = 'e'.repeat(32);
+const connectionId = 'f'.repeat(32);
+let connection: { id: string; name: string; created_at: string; last_used_at: string | null; revoked_at: string | null } | null = null;
+const tokenSecret = 'fixture-secret-never-in-localstorage';
 const pdfFixture = (() => {
 	const content = 'BT /F1 18 Tf 30 100 Td (Tailored CV fixture) Tj ET';
 	const objects = [
@@ -48,6 +59,30 @@ let allMatches = Array.from({ length: 130 }, (_, index) => ({
 const api = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(request) {
 	if (!apiAvailable) return Response.json({ detail: 'Test unavailable' }, { status: 503 });
 	const url = new URL(request.url);
+	if (url.pathname === '/auth/session') return Response.json({ workspace_id: workspaceId }, {
+		headers: { 'set-cookie': `avicv_session=${sessionCookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000` }
+	});
+	assert.equal(request.headers.get('cookie'), `avicv_session=${sessionCookie}`, 'Only AviCV session reaches the private API');
+	assert.equal(request.headers.has('authorization'), false, 'Website API never forwards caller bearer credentials');
+	if (url.pathname === '/auth/tokens') {
+		if (request.method === 'POST') {
+			const body = await request.json();
+			connection = { id: connectionId, name: body.name, created_at: '2026-01-01T00:00:00Z', last_used_at: null, revoked_at: null };
+			return Response.json({ ...connection, token: tokenSecret }, { status: 201 });
+		}
+		return Response.json({ items: connection ? [connection] : [] });
+	}
+	if (url.pathname === `/auth/tokens/${connectionId}` && request.method === 'DELETE') { connection = null; return new Response(null, { status: 204 }); }
+	if (url.pathname === '/resumes') {
+		const items = [{ id: resumeId, filename: sample.resume.filename, status: sample.resume.status, created_at: sample.resume.created_at,
+			good_total: allMatches.filter((item) => item.score > 0.8).length }];
+		if (agentUploaded) items.unshift({ ...items[0], id: agentResumeId, filename: 'Agent-uploaded CV.pdf', created_at: '2026-10-12T00:00:00Z' });
+		return Response.json({ items, total: items.length, offset: 0, limit: 100, has_more: false });
+	}
+	if (url.pathname.endsWith('/tailored')) return Response.json({ items: tailorPosts ? [{ id: artifactId,
+		status: tailoringReady ? 'ready' : 'waiting_for_design', error: null, design_source: 'reconstructed', download_url: null,
+		job_key: '1', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }] : [],
+		total: tailorPosts ? 1 : 0, offset: 0, limit: 100, has_more: false });
 	if (url.pathname.endsWith('/time-savings')) {
 		savingsRequests++;
 		if (savingsMode === 'unavailable') return Response.json({ detail: 'Savings unavailable' }, { status: 503 });
@@ -101,7 +136,7 @@ for (const path of ['src', 'static', 'package.json', 'tsconfig.json', 'vite.conf
 symlinkSync(realpathSync(resolve(import.meta.dir, '../node_modules')), join(isolatedFrontend, 'node_modules'), 'dir');
 const frontendPort = 18000 + Math.floor(Math.random() * 1000);
 const frontend = spawn('bun', ['run', 'dev', '--host', '127.0.0.1', '--port', String(frontendPort), '--strictPort'], {
-	cwd: isolatedFrontend, env: { ...process.env, API_URL: `http://127.0.0.1:${api.port}/` }, stdio: 'pipe'
+	cwd: isolatedFrontend, env: { ...process.env, API_URL: `http://127.0.0.1:${api.port}/`, APP_ORIGIN: `http://127.0.0.1:${frontendPort}` }, stdio: 'pipe'
 });
 let logs = ''; frontend.stdout?.on('data', (data) => logs += data); frontend.stderr?.on('data', (data) => logs += data);
 const chromePort = 19000 + Math.floor(Math.random() * 1000);
@@ -262,7 +297,7 @@ try {
 	await assertSavings('~1h 5m saved', '130 jobs checked');
 	assert.equal(await evaluate(`document.querySelector('.matches .time-saved') === null`), true, 'Failed tailoring has no time-saved claim');
 	await evaluate(`${firstCard}.querySelector('.job-actions button:last-child').click()`);
-	await waitFor(`${firstCard}.innerText.includes('Preparing CV…') && localStorage.getItem('speedhack.tailored-cvs.v1')?.includes('${artifactId}')`);
+	await waitFor(`${firstCard}.innerText.includes('Preparing CV…') && localStorage.getItem('${tailorKey}')?.includes('${artifactId}')`);
 	await assertSavings('~1h 5m saved', '130 jobs checked');
 	assert.equal(await evaluate(`${firstCard}.querySelector('.time-saved') === null`), true, 'Queued tailoring has no time-saved claim');
 	assert.equal(tailorPosts, 1);
@@ -273,7 +308,7 @@ try {
 	assert.equal(tailorPosts, 1, 'Refresh never creates another tailored CV');
 	await assertSavings('~1h 5m saved', '130 jobs checked');
 	tailoringReady = true;
-	await waitFor(`JSON.parse(localStorage.getItem('speedhack.tailored-cvs.v1')).entries[0].downloadPending === false`);
+	await waitFor(`JSON.parse(localStorage.getItem('${tailorKey}')).entries[0].downloadPending === false`);
 	await assertSavings('~1h 15m saved', '130 jobs checked · 1 CV tailored');
 	for (let attempt = 0; attempt < 100 && !existsSync(join(downloads, 'Candidate-Engineer.pdf')); attempt++) await sleep(100);
 	assert.equal(readFileSync(join(downloads, 'Candidate-Engineer.pdf'), 'utf8'), pdfFixture, 'Tailor action automatically saves an actual PDF');
@@ -310,7 +345,7 @@ try {
 	await waitFor(`document.querySelectorAll('.matches > li').length === 115 && ${selected('Good matches')}`);
 	await clickTab('Other jobs');
 	await waitFor(`document.querySelectorAll('.matches > li').length === 15 && ${selected('Other jobs')}`);
-	const cache = await evaluate(`localStorage.getItem('speedhack.resume-history.v1')`);
+	const cache = await evaluate(`localStorage.getItem('${historyKey}')`);
 	assert.equal(cache.includes('Private'), false); assert.equal(cache.includes('private@example'), false);
 	await changePage('Page.navigate', { url: base });
 	await waitFor(`document.querySelector('.history a') !== null`);
@@ -344,7 +379,35 @@ try {
 	await changePage('Page.navigate', { url: base });
 	await waitFor(`document.querySelector('.history a') !== null`);
 	await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Clear list').click()`);
-	await waitFor(`localStorage.getItem('speedhack.resume-history.v1') === null && !document.querySelector('.history')`);
+	await waitFor(`localStorage.getItem('${historyKey}') === null && !document.querySelector('.history')`);
+	await evaluate(`window.dispatchEvent(new Event('focus'))`);
+	await sleep(300);
+	assert.equal(await evaluate(`document.querySelector('.history') === null`), true, 'Authoritative discovery does not resurrect locally hidden CVs');
+	agentUploaded = true;
+	await evaluate(`window.dispatchEvent(new Event('focus'))`);
+	await waitFor(`document.querySelector('.history a')?.textContent.includes('Agent-uploaded CV.pdf')`);
+	assert.equal(await evaluate(`document.querySelectorAll('.history li').length`), 1, 'A new agent upload appears while hidden CV stays hidden');
+	await changePage('Page.navigate', { url: `${base}/connect` });
+	await waitFor(`document.querySelector('.primary') && !document.querySelector('.primary').disabled`);
+	assert.equal(await evaluate(`document.cookie.includes('avicv_session')`), false, 'Session stays HttpOnly');
+	await evaluate(`document.querySelector('.primary').click()`);
+	await waitFor(`document.querySelector('#connection-token')?.value === '${tokenSecret}'`);
+	assert.equal(await evaluate(`document.querySelector('.connections').innerText.includes('Not used yet')`), true, 'Creating a token never claims the client has connected');
+	assert.equal(await evaluate(`JSON.stringify(localStorage).includes('${tokenSecret}')`), false, 'Token is not saved in localStorage');
+	assert.equal(await evaluate(`[...document.querySelectorAll('pre')].some(node => node.textContent.includes('--bearer-token-env-var AVICV_TOKEN'))`), true);
+	assert.equal(await evaluate(`[...document.querySelectorAll('pre')].some(node => node.textContent.includes('${tokenSecret}'))`), false, 'Setup snippets never contain the bearer secret');
+	assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, 'Connection setup fits a narrow phone');
+	connection!.last_used_at = '2026-10-12T01:00:00Z';
+	await evaluate(`window.dispatchEvent(new Event('focus'))`);
+	await waitFor(`document.querySelector('.connections').innerText.includes('Last used')`);
+	const connectShot = await send('Page.captureScreenshot', { format: 'png' });
+	await Bun.write(resolve(import.meta.dir, '../../.context/agent-connect-mobile-fixture.png'), Buffer.from(connectShot.data, 'base64'));
+	await changePage('Page.reload');
+	await waitFor(`document.querySelector('.connections') !== null`);
+	assert.equal(await evaluate(`document.querySelector('#connection-token') === null`), true, 'Refresh never reveals a previously issued token');
+	await evaluate(`document.querySelector('.revoke').click()`);
+	await waitFor(`document.querySelector('.connections') === null`);
+	assert.equal(connection, null, 'Revoke reaches the authoritative API');
 	allMatches = allMatches.map((item, index) => ({ ...item, score: 0.8 - index * 0.001 }));
 	sample.resume.status = 'done';
 	await changePage('Page.navigate', { url: `${base}/resumes/${'b'.repeat(32)}` });

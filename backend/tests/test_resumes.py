@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx2
 import pytest
-from fastapi.testclient import TestClient
+from conftest import AuthenticatedTestClient as TestClient
 from pydantic_ai.messages import ModelMessage, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from typesafe_sdk import AsyncTypeSafeClient

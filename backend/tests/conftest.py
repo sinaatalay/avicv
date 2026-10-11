@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient as _TestClient
 from pypdf import PdfWriter
 from pypdf.annotations import Link
 
@@ -125,3 +126,38 @@ def pdf(pages: int = 1, link: str | None = None) -> bytes:
 def make_pdf() -> Callable[..., bytes]:
     """A blank PDF, optionally with a link annotation on the first page."""
     return pdf
+
+
+# Integration tests obtain real signed-in workspaces through the public session
+# endpoint. Seed helpers explicitly attach rows to this workspace; production
+# auth is never replaced with dependency overrides or an "allow all" fixture.
+_WORKSPACE_SESSIONS: dict[str, tuple[str, str]] = {}
+
+
+def workspace_session(settings: Settings | None = None) -> tuple[str, str]:
+    from fastapi.testclient import TestClient
+
+    from backend.auth import COOKIE_NAME
+    from backend.main import app
+
+    active_settings = settings or get_settings()
+    key = str(active_settings.app_db)
+    if key not in _WORKSPACE_SESSIONS:
+        client = TestClient(app)
+        response = client.post("/auth/session")
+        assert response.status_code == 200, response.text
+        _WORKSPACE_SESSIONS[key] = (
+            response.json()["workspace_id"],
+            client.cookies[COOKIE_NAME],
+        )
+        client.close()
+    return _WORKSPACE_SESSIONS[key]
+
+
+class AuthenticatedTestClient(_TestClient):
+    def __init__(self, *args, **kwargs):
+        from backend.auth import COOKIE_NAME
+
+        _, cookie = workspace_session()
+        super().__init__(*args, **kwargs)
+        self.cookies.set(COOKIE_NAME, cookie)

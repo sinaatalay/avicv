@@ -155,8 +155,7 @@ def _search(
     return 0, []
 
 
-@router.get("")
-def search_jobs(
+def search_catalog(
     settings: SettingsDep,
     q: Annotated[str | None, Query(max_length=500, description="FTS5 query")] = None,
     geo: Geo = "us_ca",
@@ -196,8 +195,7 @@ def search_jobs(
         conn.close()
 
 
-@router.get("/stats")
-def job_stats(settings: SettingsDep) -> JobStats:
+def catalog_stats(settings: Settings) -> JobStats:
     """Open jobs by provider and by geography, and how the last sync went."""
     empty = JobStats(
         synced=False,
@@ -250,3 +248,18 @@ def job_stats(settings: SettingsDep) -> JobStats:
         sources=sources,
         stale_sources=sum(source.stale for source in sources),
     )
+
+
+@router.get("")
+def search_jobs(
+    settings: SettingsDep,
+    q: Annotated[str | None, Query(max_length=500)] = None,
+    geo: Geo = "us_ca",
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> JobSearch:
+    return search_catalog(settings, q=q, geo=geo, limit=limit)
+
+
+@router.get("/stats")
+def job_stats(settings: SettingsDep) -> JobStats:
+    return catalog_stats(settings)

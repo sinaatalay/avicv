@@ -17,9 +17,12 @@ export default defineConfig({
 			// Remote functions (query, form, command) in `*.remote.ts` files
 			experimental: { remoteFunctions: true },
 
+			// SvelteKit 3 reads the canonical origin at build time, including CSRF checks.
+			paths: { origin: process.env.APP_ORIGIN || 'http://localhost:8080' },
+
 			// Builds a standalone Bun server into `build/`. Run it with `bun ./build`.
 			// See https://svelte.dev/docs/kit/adapter-bun for options.
-			adapter: adapter()
+			adapter: adapter({ precompress: true })
 		})
 	]
 });

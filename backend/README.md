@@ -46,9 +46,9 @@ uv run fastapi dev          # http://127.0.0.1:8000, docs at /docs
 uv run jobs-ingest --loop   # fills data/jobs.db, then keeps it fresh
 ```
 
-`bun run dev` at the repository root starts both, along with the frontend. Until the first usable job sync finishes, parsed résumés wait in the durable queue and automatically continue when jobs become available.
+`bun run dev` at the repository root starts the API, ingestion, frontend, and the optional CopilotKit chat service. Until the first usable job sync finishes, parsed résumés wait in the durable queue and automatically continue when jobs become available.
 
-In production, run `uv run fastapi run` for the API. Run `uv run jobs-ingest` as its own service with `--loop`, or from cron or a systemd timer.
+In production, set `APP_ORIGIN` to the public HTTPS origin and run `uv run fastapi run` for the API behind the same-origin frontend proxy. Keep the API and optional chat service on private interfaces. Run `uv run jobs-ingest` as its own service with `--loop`, or from cron or a systemd timer.
 
 ## Job postings
 
@@ -88,7 +88,7 @@ Scores retain immutable job snapshots and stable provider identities, so a rebui
 
 After parsing is saved, the API enqueues a separate design task and continues matching immediately. The design worker renders the original PDF into page images, measures its font sizes and font families when available, asks the vision model for RenderCV settings, renders a draft, compares every original and draft page, and refines the settings within `DESIGN_MAX_ITERATIONS`. It saves the best usable design once per uploaded CV. Font substitution and layout differences are possible; the visual match is an approximation. All tailored versions reuse those exact saved settings. Historical uploads without their original PDF use a clearly identified default design.
 
-`Tailor CV` rewrites the profile, relevant experience narratives, project descriptions, and stale section headings against the saved job description. Every changed passage cites original CV evidence. Code preserves contact information, employer names, job titles, dates, degrees, employment/education entries and chronology. Entry-specific rewrites can cite only that same entry; skill lists select exact source items. New numbers, URLs, unknown citations and unsupported fields are rejected before generation proceeds.
+`Download tailored CV` rewrites the profile, relevant experience narratives, project descriptions, and stale section headings against the saved job description. Every changed passage cites original CV evidence. Code preserves contact information, employer names, job titles, dates, degrees, employment/education entries and chronology. Entry-specific rewrites can cite only that same entry; skill lists select exact source items. New numbers, URLs, unknown citations and unsupported fields are rejected before generation proceeds.
 
 A separate model call reviews every changed passage against its cited evidence, without receiving the job description. Unsupported assertions must be corrected and reviewed again, with a bounded number of attempts; failed or incomplete reviews never produce a downloadable PDF. This reduces factual drift but is not a guarantee of accuracy: users should still review their CV before applying. The verified document renders using the original saved design, with pagination allowed to change as content changes. Tailoring versions are part of the cache key, so improvements generate fresh PDFs without repeating design reconstruction or adding duplicate time-saved credit.
 
@@ -96,12 +96,38 @@ Design and tailoring each have an independent leased worker lane, separate from 
 
 Rendering uses the pinned RenderCV 2.8 API, bundled fonts, Typst, and portable PDFium previews installed by `uv sync`. Its fixed Typst icon dependency is vendored with its license and verified digest, so PDF compilation works offline. Each render runs in a disposable subprocess with a restricted environment, filesystem root, execution deadline, and output limits. Custom filesystem themes, photos, executable document markup, and arbitrary external assets are excluded from this upload-to-PDF path. The model still has access to RenderCV's built-in design settings and entry templates.
 
-The frontend saves recent result links, filters, pagination preferences, and bounded job previews in localStorage. Full PDFs, parsed CVs, durable progress, and complete scores remain in SQLite. Back up both `app.db` and `jobs.db` using SQLite's backup API; copy neither live database without its WAL. This remains a trusted/local application: a résumé ID grants access, so public multi-user deployment requires authentication and ownership controls.
+The frontend uses localStorage for bounded previews and interface preferences; it discovers owned CVs and tailored artifacts from the API. Full PDFs, parsed CVs, durable progress, and complete scores remain in SQLite. Back up both `app.db` and `jobs.db` using SQLite's backup API; copy neither live database without its WAL.
+
+## Workspaces, agent access, and MCP
+
+The browser creates an anonymous workspace through `POST /auth/session`. Its opaque `avicv_session` cookie is HttpOnly, SameSite=Lax, lasts one year, and is Secure for an HTTPS `APP_ORIGIN`. Agent connection tokens are created and revoked from the browser; each token authorizes that same workspace. Only credential hashes are stored. A résumé ID is a resource identifier, never permission to read it. Every private REST/MCP operation, YAML response, and PDF download checks ownership; public job search and health remain unauthenticated.
+
+`resumes/service.py` contains the authorized application operations used by both REST and the canonical Streamable HTTP MCP endpoint at `/mcp`. Both interfaces use the same catalog, SQLite records, matching workers, design, tailoring cache, and admission budgets. The MCP transport runs inside FastAPI's lifespan. Agent clients send `Authorization: Bearer <connection token>`; this release uses manually configured tokens, not OAuth. The optional CopilotKit service calls this same MCP endpoint with the validated browser workspace. A shared workspace shares saved work, not browser cookies or chat transcripts.
+
+For local PDFs, `begin_resume_upload` returns a ten-minute, scoped HTTP upload credential and URL. The agent sends raw PDF bytes with the exact declared size (up to 10 MB and ten pages), optionally checked against SHA-256. Local filesystem paths and base64 PDFs are not MCP arguments. A reserved CV ID makes retries recoverable without duplicate jobs; deleting the CV permanently retires that ID. Clients without file-transfer capability can upload through the website. Ready tailored PDFs receive ten-minute download links bound to the issuing credential; revoking that credential invalidates its links. Treat those URLs as secrets. Uvicorn access logs redact their tokens; configure reverse proxies and external request logging to redact `/downloads/*` and authentication headers too.
+
+Admission limits apply across browser and agent credentials for each workspace, per UTC day: `UPLOADS_PER_DAY=10`, `TAILORS_PER_DAY=50`, `CHATS_PER_DAY=50`, and `RETRIES_PER_DAY=10` for each of retry/rematch. Upload-ticket creation is limited to three times the upload allowance. `GLOBAL_ACTIONS_PER_DAY=1000` caps each action across all workspaces. Idempotent agent-upload retries and cached tailoring do not spend another admission. Exhaustion returns `429` with `Retry-After`; queue capacities remain separate. The chat service reserves its model budget through `/auth/chat-admission` before a model run.
+
+Clearing the browser cookie loses browser access to that anonymous workspace; localStorage IDs cannot restore it. Existing agent tokens remain valid until revoked. There is no account recovery or automatic claim of old CVs. Legacy ownerless records stay intact and inaccessible until a local administrator explicitly assigns them:
+
+```sh
+uv run avicv-claim-legacy --resume <legacy-id>  # repeat --resume for selected CVs
+uv run avicv-claim-legacy --all-unowned        # explicitly assign every unowned CV
+```
+
+The CLI prompts privately for a destination workspace's connection token. It never accepts secrets in command arguments, never transfers already-owned CVs, and leaves PDFs, scores, and artifacts unchanged.
+
 
 ## API
 
 | Method | Path                            | Description                                                      |
 | ------ | ------------------------------- | ---------------------------------------------------------------- |
+| `POST` | `/auth/session`                 | Create or reuse the browser workspace and cookie                 |
+| `GET` | `/auth/session`                  | Validate the current credential; return `workspace_id`           |
+| `POST` / `GET` | `/auth/tokens`           | Create an agent token once or list safe metadata (browser only)  |
+| `DELETE` | `/auth/tokens/{id}`            | Revoke an agent connection (browser only)                        |
+| `POST` | `/auth/chat-admission`           | Reserve one chat model run against shared daily limits           |
+| `GET` | `/resumes`                       | Owned CVs, current good-match counts, and pagination (limit ≤ 100) |
 | `POST` | `/resumes`                      | Upload a résumé PDF (form field `file`); returns its `id`        |
 | `GET`  | `/resumes/{id}`                 | Status, progress, the parsed CV and its RenderCV YAML            |
 | `GET`  | `/resumes/{id}/matches`         | Scored roles, best first (`limit`, default 100); fills in while scoring |
@@ -112,12 +138,17 @@ The frontend saves recent result links, filters, pagination preferences, and bou
 | `POST` | `/resumes/{id}/rematch`         | Refresh against the catalog; optional JSON `location` override   |
 | `DELETE` | `/resumes/{id}`               | Delete uploaded PDF, parsed CV, queue entry, and saved scores     |
 | `POST` | `/resumes/{id}/tailor`          | Request/reuse a tailored CV with JSON `job_key`                   |
+| `GET` | `/resumes/{id}/tailored`        | Discover this CV's saved artifacts, newest first (limit ≤ 100)   |
 | `GET` | `/resumes/{id}/tailored/{artifact_id}` | Preparation status and download availability                |
 | `GET` | `/resumes/{id}/tailored/{artifact_id}/cv.pdf` | Download the completed tailored PDF                |
 | `GET` | `/resumes/{id}/design`          | Background design status and source                            |
 | `GET`  | `/resumes/{id}/rendercv.yaml`   | The parsed CV as a RenderCV YAML file                            |
 | `GET`  | `/jobs`                         | Search open postings (`q`, `geo`, `limit`)                       |
 | `GET`  | `/jobs/stats`                   | Open postings by provider and region, and the last sync          |
+| `POST` | `/mcp`                        | Authenticated Streamable HTTP MCP requests                      |
+| `PUT` | `/uploads/{id}`                   | Raw PDF upload with its temporary scoped credential              |
+| `GET` | `/uploads/{id}`                   | Recover upload status using a workspace credential               |
+| `GET` | `/downloads/{grant}`              | Temporary credential-bound tailored PDF download                 |
 | `GET`  | `/health`                       | Liveness check: `{"status": "ok"}`                               |
 
 Good matches have a composite score strictly above `0.80`; other jobs have a score at or below it. `good_total` and `other_total` describe the full available, location-filtered set before category pagination. Jobs within each category remain ordered by descending match score. The UI uses the categories and application links without exposing score percentages or processing diagnostics.
@@ -141,8 +172,14 @@ uv run ty check      # type-check
 src/backend/
 ├ main.py            the FastAPI app
 ├ config.py          settings from the environment and .env
-├ db.py              SQLite connections and the app.db schema
+├ db.py              SQLite connections, ownership, and additive migrations
+├ auth.py            browser sessions, scoped agent credentials, and authorization
+├ mcp_server.py      canonical tools and authenticated Streamable HTTP transport
+├ transfers.py       bounded agent uploads and temporary PDF links
+├ quota.py           transactional workspace/global admission budgets
+├ migrate_owner.py   explicit local-only legacy ownership migration
 ├ resumes/
+│ ├ service.py       shared authorized operations for REST and MCP
 │ ├ parse.py         PDF → RenderCV with Gemini
 │ ├ pipeline.py      resumable parse, shortlist, and score stages
 │ ├ queue.py         transactional claims, leases, and recovery

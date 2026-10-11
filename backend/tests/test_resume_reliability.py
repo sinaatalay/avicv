@@ -8,13 +8,14 @@ from threading import Barrier
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
+from conftest import AuthenticatedTestClient as TestClient
+from conftest import workspace_session
 
 from backend.config import Settings
 from backend.db import connect, connect_app
 from backend.main import app
 from backend.matching import jev
-from backend.resumes import pipeline, queue, router
+from backend.resumes import pipeline, queue, service
 
 YAML = "cv:\n  name: Test Candidate\n  headline: Backend Engineer\n  location: Toronto, Canada\n  sections:\n    Skills:\n      - label: Languages\n        details: Python, Go\n"
 
@@ -26,14 +27,15 @@ def seed_resume(
     yaml: str = YAML,
     queued: bool = True,
 ) -> None:
+    workspace_id, _ = workspace_session(settings)
     conn = connect_app(settings.app_db)
     with conn:
         conn.execute(
             """
-            INSERT INTO resumes (id, created_at, pdf_sha256, status, rendercv_yaml)
-            VALUES (?, '2026-10-11', 'hash', ?, ?)
+            INSERT INTO resumes (id, workspace_id, created_at, pdf_sha256, status, rendercv_yaml)
+            VALUES (?, ?, '2026-10-11', 'hash', ?, ?)
         """,
-            (resume_id, "queued" if queued else "done", yaml),
+            (resume_id, workspace_id, "queued" if queued else "done", yaml),
         )
         if queued:
             queue.enqueue(conn, resume_id)
@@ -730,7 +732,7 @@ def test_good_links_read_one_selected_generation_during_concurrent_rematch_publi
         is True
     )
     assert client.get("/resumes/resume/good-match-links").json() == old_links
-    original_catalog_states = router.catalog_states
+    original_catalog_states = service.catalog_states
 
     def publish_during_read(app_conn, resume_id, generation, settings):
         writer = connect_app(settings.app_db)
@@ -745,9 +747,9 @@ def test_good_links_read_one_selected_generation_during_concurrent_rematch_publi
         writer.close()
         return original_catalog_states(app_conn, resume_id, generation, settings)
 
-    monkeypatch.setattr(router, "catalog_states", publish_during_read)
+    monkeypatch.setattr(service, "catalog_states", publish_during_read)
     assert client.get("/resumes/resume/good-match-links").json() == old_links
-    monkeypatch.setattr(router, "catalog_states", original_catalog_states)
+    monkeypatch.setattr(service, "catalog_states", original_catalog_states)
     assert client.get("/resumes/resume/good-match-links").json() == {
         "links": ["https://example.com/generation/1"]
     }

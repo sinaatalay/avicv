@@ -10,6 +10,7 @@ requires-python = ">=3.14"
 dependencies = [
     "fastapi[standard]>=0.143.0",
     "httpx2>=2.13.1",
+    "mcp>=2,<3",
     "pillow>=12.0.0",
     "pydantic-ai-slim[openrouter]>=2.55.0",
     "pydantic-settings>=2.15.0",
@@ -21,6 +22,7 @@ dependencies = [
 
 [project.scripts]
 jobs-ingest = "backend.jobs.ingest:main"
+avicv-claim-legacy = "backend.migrate_owner:main"
 
 [build-system]
 requires = ["uv_build>=0.13.0,<0.14.0"]

@@ -4,7 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
+from conftest import AuthenticatedTestClient as TestClient
+from conftest import workspace_session
 from test_tailor import CV, complete_plan
 
 from backend.config import Settings
@@ -25,10 +26,11 @@ from backend.resumes.storage import job_key
 
 
 def seed(settings: Settings, *, pdf: bytes | None = None) -> list[str]:
+    workspace_id, _ = workspace_session(settings)
     conn = connect_app(settings.app_db)
     conn.execute(
-        "INSERT INTO resumes (id, created_at, pdf_sha256, status, rendercv_yaml, upload_pdf) VALUES ('resume', 'today', 'pdfhash', 'done', ?, ?)",
-        (CV, pdf),
+        "INSERT INTO resumes (id, workspace_id, created_at, pdf_sha256, status, rendercv_yaml, upload_pdf) VALUES ('resume', ?, 'today', 'pdfhash', 'done', ?, ?)",
+        (workspace_id, CV, pdf),
     )
     keys = []
     for index in [1, 2]:

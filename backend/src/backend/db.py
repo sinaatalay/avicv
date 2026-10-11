@@ -7,6 +7,26 @@ never change the job to which a saved score refers.
 import sqlite3
 from pathlib import Path
 
+WORKSPACES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY, created_at TEXT NOT NULL
+)
+"""
+CREDENTIALS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS credentials (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('session', 'token')),
+    secret_hash TEXT NOT NULL UNIQUE, name TEXT,
+    created_at TEXT NOT NULL, expires_at REAL,
+    last_used_at TEXT, revoked_at TEXT
+)
+"""
+DELETED_RESUMES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS deleted_resumes (
+    resume_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL
+)
+"""
 RESUMES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS resumes (
     id TEXT PRIMARY KEY, created_at TEXT NOT NULL, filename TEXT, pdf_sha256 TEXT NOT NULL,
@@ -83,6 +103,7 @@ CREATE TABLE IF NOT EXISTS artifact_queue (
 )
 """
 ADDED_COLUMNS = [
+    ("workspace_id", "TEXT REFERENCES workspaces(id)"),
     ("parse_preview", "TEXT"),
     ("upload_pdf", "BLOB"),
     ("match_attempted", "INTEGER NOT NULL DEFAULT 0"),
@@ -94,7 +115,7 @@ ADDED_COLUMNS = [
     ("planned_generation", "INTEGER NOT NULL DEFAULT -1"),
     ("current_generation", "INTEGER NOT NULL DEFAULT 0"),
 ]
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 
 def connect(path: Path, *, readonly: bool = False) -> sqlite3.Connection:
@@ -129,11 +150,20 @@ def connect_app(path: Path) -> sqlite3.Connection:
         if version == SCHEMA_VERSION:
             conn.commit()
             return conn
+        conn.execute(WORKSPACES_SCHEMA)
+        conn.execute(CREDENTIALS_SCHEMA)
+        conn.execute(DELETED_RESUMES_SCHEMA)
         conn.execute(RESUMES_SCHEMA)
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(resumes)")}
         for name, declaration in ADDED_COLUMNS:
             if name not in columns:
                 conn.execute(f"ALTER TABLE resumes ADD COLUMN {name} {declaration}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS resumes_by_workspace ON resumes(workspace_id, created_at DESC, id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS credentials_by_workspace ON credentials(workspace_id, kind)"
+        )
         match_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matches)")}
         if match_columns and "job_key" not in match_columns:
             conn.execute("ALTER TABLE matches RENAME TO matches_legacy")

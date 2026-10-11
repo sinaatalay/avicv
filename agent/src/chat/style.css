@@ -1,0 +1,18 @@
+:root { color-scheme: light; --avicv-ink: #202321; --avicv-orange: #df572f; }
+html, body, #root { height: 100%; margin: 0; color: var(--avicv-ink); font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #faf9f6; }
+* { box-sizing: border-box; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; font: inherit; }
+a { color: #ad3919; }
+.avicv-shell { height: 100%; display: flex; flex-direction: column; }
+.avicv-header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid #e9e5dd; font-size: 13px; }
+.avicv-header a { font-size: 17px; font-weight: 750; text-decoration: none; color: var(--avicv-ink); }
+.avicv-header span:last-child { margin-left: auto; }
+.avicv-chat { flex: 1; min-height: 0; }
+.avicv-card { background: white; border: 1px solid #e9e5dd; border-radius: 12px; padding: 14px; margin: 8px 0; font-size: 14px; }
+.avicv-muted { color: #6b7069; margin: 6px 0; }
+.avicv-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 12px; }
+.avicv-actions button, .avicv-actions a, .avicv-upload button, .avicv-download { padding: 7px 11px; border-radius: 7px; border: 1px solid #e9e5dd; background: #faf9f6; text-decoration: none; }
+.avicv-upload { padding: 12px 16px; }
+.avicv-unavailable { padding: 24px; max-width: 560px; margin: auto; }
+.avicv-chat h3 { margin: 14px 0 7px; font-size: 15px; }

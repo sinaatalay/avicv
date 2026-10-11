@@ -13,7 +13,7 @@
 	<p class="lead">AviCV at avicv.com is an experimental hackathon project, provided as is. Use it at your own risk.</p>
 
 	<h2>Check before you apply</h2>
-	<p>AI can make mistakes. Review every tailored CV for accuracy and check each job listing before applying. Matches do not guarantee an interview or a job. Time saved is an estimate.</p>
+	<p>AI can make mistakes. Check chat answers, review every tailored CV for accuracy, and check each job listing before applying. Matches do not guarantee an interview or a job. Time saved is an estimate.</p>
 
 	<h2>Your responsibility</h2>
 	<p>Only upload CVs you have permission to use. Do not misuse the service. Applications open on third-party sites, which have their own terms and privacy policies.</p>

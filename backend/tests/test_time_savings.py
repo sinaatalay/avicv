@@ -3,7 +3,7 @@ import sqlite3
 from typing import Any
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
+from conftest import AuthenticatedTestClient as TestClient
 from test_resume_reliability import role, score, seed_resume
 
 from backend.config import Settings

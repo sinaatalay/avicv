@@ -17,6 +17,7 @@
 			<img src={favicon} alt="" width="34" height="34" />
 			<span>AviCV</span>
 		</a>
+		<a class="agent-link" href={resolve('/connect')}>Use in your agent</a>
 	</header>
 
 	<main>
@@ -52,9 +53,14 @@
 	}
 
 	header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
 		padding-block: 1.25rem;
 		border-bottom: 1px solid var(--color-border);
 	}
+	.agent-link { font-size: 0.85rem; font-weight: 500; text-decoration: none; }
 
 	.brand {
 		display: inline-flex;

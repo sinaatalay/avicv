@@ -23,6 +23,45 @@ const settle = async (condition: () => boolean) => {
 };
 
 describe('tailored CV persistence and lifecycle', () => {
+	test('discovers agent-created PDFs across pages without downloading until the user asks', async () => {
+		const storage = new MemoryStorage(); let state: TailorStates = {}; const downloads: string[] = [];
+		const oldId = 'd'.repeat(32);
+		const manager = createTailorManager(resumeId, (next) => state = next, {
+			storage,
+			fetcher: (async (input, init) => {
+				if (init?.method === 'POST') return Response.json(artifact());
+				const offset = Number(new URL(String(input), 'https://avicv.com').searchParams.get('offset'));
+				return Response.json({ items: [{ ...artifact(), id: offset ? oldId : artifactId, job_key: 'job-1',
+					created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }], offset, limit: 1, has_more: offset === 0 });
+			}) as typeof fetch,
+			download: async (url) => { downloads.push(url); }
+		});
+		await manager.refresh();
+		expect(state['job-1'].artifact?.id).toBe(artifactId);
+		expect(state['job-1'].busy).toBe(false);
+		expect(readTailorHistory(storage)[0].downloadPending).toBe(false);
+		expect(downloads).toEqual([]);
+		await manager.request('job-1');
+		expect(downloads).toEqual([`/resumes/${resumeId}/tailored/${artifactId}/cv.pdf`]);
+		manager.dispose();
+	});
+
+	test('an agent-created pending PDF completes without creating browser download intent', async () => {
+		const storage = new MemoryStorage(); let state: TailorStates = {}; let downloads = 0;
+		const manager = createTailorManager(resumeId, (next) => state = next, {
+			storage,
+			fetcher: (async (input) => String(input).includes('?offset=')
+				? Response.json({ items: [{ ...artifact('rendering'), job_key: 'job-1', created_at: '2026-01-01', updated_at: '2026-01-01' }], offset: 0, limit: 100, has_more: false })
+				: Response.json(artifact())) as typeof fetch,
+			download: async () => { downloads++; }
+		});
+		await manager.refresh(); await settle(() => state['job-1']?.busy === false);
+		expect(state['job-1'].artifact?.status).toBe('ready');
+		expect(downloads).toBe(0);
+		expect(readTailorHistory(storage)[0].downloadPending).toBe(false);
+		manager.dispose();
+	});
+
 	test('stores bounded references only, rejects corruption and clears references with their resume', () => {
 		const storage = new MemoryStorage();
 		for (let index = 0; index < 205; index++) saveTailorReference({ ...reference(), jobKey: `job-${index}`, cv: 'private@example.com', pdf: 'binary' } as ReturnType<typeof reference>, storage);

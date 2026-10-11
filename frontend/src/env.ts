@@ -1,6 +1,10 @@
 import { defineEnvVars } from '@sveltejs/kit/env';
 
 export const variables = defineEnvVars({
+	AGENT_URL: {
+		description: 'Internal URL of the CopilotKit/Darwin service',
+		schema: (value) => value || 'http://127.0.0.1:4000'
+	},
 	API_URL: {
 		description: 'Base URL of the FastAPI backend, as reached from the SvelteKit server',
 		schema: (value) => value || 'http://127.0.0.1:8000'

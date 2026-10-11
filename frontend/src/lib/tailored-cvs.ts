@@ -9,6 +9,12 @@ export const tailoredCvSchema = v.object({
 	error: v.nullable(v.string()), download_url: v.nullable(v.string()),
 	design_source: v.nullable(v.picklist(['reconstructed', 'default']))
 });
+const artifactListSchema = v.object({
+	items: v.array(v.object({ ...tailoredCvSchema.entries,
+		job_key: v.pipe(v.string(), v.minLength(1), v.maxLength(256)), created_at: v.string(), updated_at: v.string()
+	})),
+	offset: v.number(), limit: v.number(), has_more: v.boolean()
+});
 export interface TailorJobState {
 	artifact: TailoredCv | null;
 	busy: boolean;
@@ -64,6 +70,7 @@ export function createTailorManager(resumeId: string, onChange: (states: TailorS
 	const { signal } = controller;
 	const references = new Map<string, TailorReference>();
 	const running = new Set<string>();
+	let refreshing = false;
 	let states: TailorStates = {};
 	const update = (jobKey: string, changes: Partial<TailorJobState>) => {
 		if (signal.aborted) return;
@@ -134,6 +141,35 @@ export function createTailorManager(resumeId: string, onChange: (states: TailorS
 		} finally { running.delete(jobKey); update(jobKey, { busy: false }); }
 	};
 	return {
+		async refresh() {
+			if (refreshing || signal.aborted) return;
+			refreshing = true;
+			const seen = new Set<string>();
+			try {
+				let offset = 0;
+				while (!signal.aborted) {
+					const response = await fetcher(`${base}/tailored?offset=${offset}`, { signal, cache: 'no-store' });
+					if (!response.ok) return;
+					const list = v.parse(artifactListSchema, await response.json());
+					for (const artifact of list.items) {
+						// The authoritative list is newest first. A browser request retains its own download intent.
+						if (seen.has(artifact.job_key)) continue;
+						seen.add(artifact.job_key);
+						if (running.has(artifact.job_key)) continue;
+						const reference = references.get(artifact.job_key);
+						if (reference?.artifactId !== artifact.id) persist({
+							resumeId, artifactId: artifact.id, jobKey: artifact.job_key,
+							downloadPending: false, updatedAt: Date.parse(artifact.updated_at) || Date.now()
+						});
+						update(artifact.job_key, { artifact, error: artifact.status === 'failed' ? 'We couldn’t prepare your CV. Try again.' : null });
+						if (artifact.status !== 'ready' && artifact.status !== 'failed') void run(artifact.job_key, false);
+					}
+					if (!list.has_more || list.limit <= 0 || !list.items.length) break;
+					offset = list.offset + list.limit;
+				}
+			} catch { /* Existing work and explicit download actions report their own actionable errors. */ }
+			finally { refreshing = false; }
+		},
 		restore() {
 			for (const reference of readTailorHistory(storage).filter((entry) => entry.resumeId === resumeId)) {
 				references.set(reference.jobKey, reference);

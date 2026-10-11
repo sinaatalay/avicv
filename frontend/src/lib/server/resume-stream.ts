@@ -1,6 +1,6 @@
-import type { MatchResults, Resume, ResumeResults } from '../contracts.ts';
+import type { MatchCategory, MatchResults, Resume, ResumeResults } from '../contracts.ts';
 
-export interface ResultRequest { id: string; nearby: boolean; limit: number }
+export interface ResultRequest { id: string; nearby: boolean; limit: number; category?: MatchCategory }
 type Request = (path: string, init: RequestInit) => Promise<Response>;
 
 /** The timeout and its listener are both released when a client disconnects. */
@@ -28,12 +28,12 @@ export async function* streamResume(
 			const response = await request(`resumes/${encodeURIComponent(input.id)}`, { signal });
 			if (!response.ok) throw new Error(response.status === 404 ? 'Résumé not found' : 'Could not load the résumé');
 			const resume: Resume = await response.json();
-			let matches: MatchResults = { items: [], total: 0, unfiltered_total: 0, closed_total: 0, nearby_total: null,
+			let matches: MatchResults = { items: [], total: 0, unfiltered_total: 0, good_total: 0, other_total: 0, closed_total: 0, nearby_total: null,
 				offset: 0, limit: input.limit, has_more: false, candidate_location_known: false, results_are_previous: resume.results_are_previous, effective_location: resume.effective_location, location_source: resume.location_source };
 			if (resume.progress.total > 0 || ['done', 'partial', 'matching', 'failed'].includes(resume.status)) {
 				let offset = 0;
 				do {
-					const params = new URLSearchParams({ nearby: String(input.nearby), limit: String(Math.min(500, input.limit - offset)), offset: String(offset) });
+					const params = new URLSearchParams({ nearby: String(input.nearby), limit: String(Math.min(500, input.limit - offset)), offset: String(offset), category: input.category ?? 'all' });
 					const pageResponse = await request(`resumes/${encodeURIComponent(input.id)}/match-results?${params}`, { signal });
 					if (!pageResponse.ok) throw new Error('Could not load matches');
 					const page: MatchResults = await pageResponse.json();

@@ -11,6 +11,6 @@ export const result = (): ResumeResults => ({
 		preview: { name: 'Private Name', sections: [] }, cv: { name: 'Private Name', headline: 'Engineer', location: null, sections: [] },
 		rendercv_yaml: 'email: private@example.com', progress: { done: 1, total: 1, attempted: 1, succeeded: 1, failed: 0, pending: 0 },
 		search: null, cost_usd: 0.01 },
-	matches: { results_are_previous: false, effective_location: null, location_source: 'unknown', items: [match()], total: 1, unfiltered_total: 1, closed_total: 0, nearby_total: null, offset: 0, limit: 100,
+	matches: { results_are_previous: false, effective_location: null, location_source: 'unknown', items: [match()], total: 1, unfiltered_total: 1, good_total: 0, other_total: 1, closed_total: 0, nearby_total: null, offset: 0, limit: 100,
 		has_more: false, candidate_location_known: false }
 });

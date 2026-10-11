@@ -18,6 +18,13 @@
 		const saved = id ? forgetResume(id) : clearHistory();
 		history = saved.entries; storageWarning = saved.warning;
 	}
+	function savedStatus(entry: HistoryEntry) {
+		if (!entry.snapshot) return null;
+		const { status, progress } = entry.snapshot;
+		if (status === 'done' || status === 'partial') return `${progress.succeeded.toLocaleString()} jobs`;
+		if (status === 'failed') return 'Needs another try';
+		return status === 'parsing' ? 'Reading your CV…' : 'Finding jobs…';
+	}
 
 	function drop(event: DragEvent & { currentTarget: HTMLLabelElement }) {
 		event.preventDefault();
@@ -36,14 +43,13 @@
 
 <svelte:head>
 	<title>Speedhack</title>
-	<meta name="description" content="Drop your résumé and see which open jobs fit you." />
+	<meta name="description" content="Find jobs that fit your CV and apply directly." />
 </svelte:head>
 
-<h1>Find the jobs that fit your résumé</h1>
+<h1>Find jobs that fit you</h1>
 
 <p class="lead">
-	Drop your résumé as a PDF. We read it, compare it with thousands of open roles in the US and
-	Canada, and rank the ones you'd fit.
+	Upload your CV. Find your best matches and apply.
 </p>
 
 <form {...uploadResume.preflight(resumeUpload)} enctype="multipart/form-data">
@@ -67,8 +73,8 @@
 		{#if uploadResume.pending}
 			<strong>Uploading…</strong>
 		{:else}
-			<strong>Drop your résumé here</strong>
-			<span>or click to choose a PDF, up to 10 MB</span>
+			<strong>Choose a CV</strong>
+			<span>or drop it here · PDF, up to 10 MB</span>
 		{/if}
 	</label>
 
@@ -79,29 +85,28 @@
 	<p class="error">{issue.message}</p>
 {/each}
 
-{#if storageWarning}<p class="error" role="status">{storageWarning}</p>{/if}
+{#if storageWarning}<p class="error" role="status">Your recent CVs couldn't be saved in this browser.</p>{/if}
 {#if history.length}
-	<section class="history" aria-label="Recent résumés">
-		<h2>Your saved runs</h2>
-		<p>Result links, filters and a preview are saved in this browser. Your full results are stored on the server.</p>
+	<section class="history" aria-label="Recent CVs">
+		<h2>Recent CVs</h2>
 		<ul>{#each history as entry (entry.id)}
-			<li><div><a href={resolve('/resumes/[id]', { id: entry.id })}>Résumé from {new Date(entry.updatedAt).toLocaleString()}</a>
-				{#if entry.snapshot}<span>{entry.snapshot.status.replaceAll('_', ' ')} · {entry.snapshot.progress.succeeded.toLocaleString()} roles scored</span>{/if}</div>
-				<button class="forget" onclick={() => forget(entry.id)} aria-label={`Forget résumé from ${new Date(entry.updatedAt).toLocaleString()} in this browser`}>Forget</button></li>
+			<li><div><a href={resolve('/resumes/[id]', { id: entry.id })}>CV from {new Date(entry.updatedAt).toLocaleString()}</a>
+				{#if savedStatus(entry)}<span>{savedStatus(entry)}</span>{/if}</div>
+				<button class="forget" onclick={() => forget(entry.id)} aria-label={`Remove CV from ${new Date(entry.updatedAt).toLocaleString()} from this list`}>Remove</button></li>
 		{/each}</ul>
-		<button onclick={() => forget()}>Clear browser history</button>
-		<p class="small">This clears local previews and links. Open a run to delete its server data.</p>
+		<button class="forget clear" onclick={() => forget()}>Clear list</button>
 	</section>
 {/if}
 
 <style>
 	.history { margin-top: 2.5rem; }
-	.history p, .history span { color: var(--color-muted); }
+	.history span { color: var(--color-muted); }
 	.history ul { list-style: none; padding: 0; }
 	.history li { display: flex; gap: 1rem; justify-content: space-between; align-items: center; padding-block: 0.75rem; border-bottom: 1px solid var(--color-border); }
 	.history span { display: block; font-size: 0.85rem; }
 	.forget { background: none; border: 0; text-decoration: underline; cursor: pointer; color: var(--color-muted); }
-	.small { font-size: 0.85rem; }
+	.clear { padding: 0; margin-top: 0.5rem; font-size: 0.85rem; }
+	h1 { font-size: clamp(1.8rem, 5vw, 2.4rem); line-height: 1.2; letter-spacing: -0.035em; margin-bottom: 0.75rem; }
 	.lead {
 		max-width: 38rem;
 		color: var(--color-muted);

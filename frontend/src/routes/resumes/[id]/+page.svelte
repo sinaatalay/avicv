@@ -2,55 +2,84 @@
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
+	import type { JobTab, ResumeResults } from '#lib/contracts.ts';
 	import MatchList from '#lib/MatchList.svelte';
-	import { cachedMatches, forgetResume, readHistory, saveVisit, type HistoryEntry } from '#lib/resume-history.ts';
+	import { cachedMatches, forgetResume, readHistory, saveVisit, type HistoryEntry, type ViewPreferences } from '#lib/resume-history.ts';
 	import { deleteResume, rematchResume, retryResume, watchResume } from '../../resumes.remote.ts';
 	import type { PageProps } from './$types';
 
 	let { params }: PageProps = $props();
-	let nearbyOnly = $state(false);
-	let limit = $state(100);
+	let category = $state<JobTab>('good');
+	let categoryChosen = $state(false);
+	let limits = $state({ good: 20, other: 20 });
 	let restoredId = $state('');
 	let cached = $state<HistoryEntry>();
+	let lastView = $state<{ category: JobTab; results: ResumeResults }>();
 	let storageWarning = $state<string | null>(null);
-	let location = $state('');
 	let busy = $state(false);
 	let actionError = $state('');
 	let confirmDelete = $state(false);
-	const result = $derived(watchResume({ id: params.id, nearby: nearbyOnly, limit }));
+	const result = $derived(watchResume({ id: params.id, nearby: false, category, limit: limits[category] }));
 	const data = $derived(result.current);
-	const r = $derived(data?.resume);
+	const previous = $derived(lastView?.results.resume.id === params.id ? lastView : undefined);
+	const activeCache = $derived(cached?.id === params.id ? cached : undefined);
+	const current = $derived(data ?? (previous?.category === category ? previous.results : undefined));
+	const r = $derived(data?.resume ?? previous?.results.resume);
 	const terminal = $derived(r ? ['done', 'partial', 'failed', 'waiting_for_jobs'].includes(r.status) : false);
+	const goodCount = $derived(current?.matches.good_total ?? activeCache?.snapshot?.goodTotal);
+	const otherCount = $derived(current?.matches.other_total ?? activeCache?.snapshot?.otherTotal);
+	const shown = $derived(current?.matches.items ?? cachedMatches(activeCache, category));
+	const activeTotal = $derived(category === 'good' ? goodCount : otherCount);
+
+	function preferences(): ViewPreferences { return { category, categoryChosen, limits: { ...limits } }; }
+	function remember(results?: ResumeResults) {
+		const saved = saveVisit(params.id, preferences(), results);
+		storageWarning = saved.warning;
+		cached = saved.entries.find((entry) => entry.id === params.id);
+	}
 
 	$effect(() => {
 		const id = params.id;
 		if (id === untrack(() => restoredId)) return;
 		const saved = readHistory();
 		cached = saved.entries.find((entry) => entry.id === id);
-		nearbyOnly = cached?.nearbyOnly ?? false;
-		limit = cached?.limit ?? 100;
+		category = cached?.category === 'other' ? 'other' : 'good';
+		categoryChosen = cached?.categoryChosen ?? false;
+		limits = cached?.limits ?? { good: 20, other: 20 };
+		lastView = undefined;
 		storageWarning = saved.warning;
-		const remembered = saveVisit(id, nearbyOnly, undefined, undefined, limit);
-		storageWarning ??= remembered.warning;
-		location = '';
 		confirmDelete = false;
 		restoredId = id;
+		untrack(() => remember());
 	});
 	$effect(() => {
 		if (restoredId !== params.id || !data) return;
-		const saved = saveVisit(params.id, nearbyOnly, data, undefined, limit);
-		storageWarning = saved.warning;
-		cached = saved.entries.find((entry) => entry.id === params.id);
+		lastView = { category, results: data };
+		untrack(() => remember(data));
+		if (!categoryChosen && category === 'good' && ['done', 'partial'].includes(data.resume.status)
+			&& data.matches.good_total === 0 && data.matches.other_total > 0) {
+			category = 'other';
+			untrack(() => remember());
+		}
 	});
 
-	function changeFilter(event: Event) {
-		nearbyOnly = (event.currentTarget as HTMLInputElement).checked;
-		limit = 100;
-		const saved = saveVisit(params.id, nearbyOnly);
-		cached = saved.entries.find((entry) => entry.id === params.id);
-		storageWarning = saved.warning;
+	function chooseCategory(next: JobTab) {
+		category = next;
+		categoryChosen = true;
+		remember();
 	}
-	async function run(action: 'retry' | 'rematch' | 'location' | 'delete') {
+	function moveTab(event: KeyboardEvent) {
+		if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+		event.preventDefault();
+		const next = event.key === 'Home' ? 'good' : event.key === 'End' ? 'other' : category === 'good' ? 'other' : 'good';
+		chooseCategory(next);
+		document.getElementById(`${next}-tab`)?.focus();
+	}
+	function loadMore() {
+		limits[category] += 20;
+		remember();
+	}
+	async function run(action: 'retry' | 'rematch' | 'delete') {
 		busy = true;
 		actionError = '';
 		try {
@@ -61,124 +90,100 @@
 				return;
 			}
 			if (action === 'retry') await retryResume(params.id);
-			else await rematchResume({ id: params.id, ...(action === 'location' ? { location: location.trim() } : {}) });
+			else await rematchResume({ id: params.id });
 			await result.reconnect();
-		} catch (cause) { actionError = cause instanceof Error ? cause.message : 'Could not complete this action. Please try again.'; }
+		} catch { actionError = 'Something went wrong. Please try again.'; }
 		finally { busy = false; }
 	}
-	function fileName(name: string | null) { return `${(name ?? 'My').replaceAll(/\s+/g, '_')}_CV.yaml`; }
 </script>
 
-<svelte:head><title>Your matches · Speedhack</title></svelte:head>
+<svelte:head><title>Your job matches · Speedhack</title></svelte:head>
 
-<h1>{r?.cv?.name || r?.preview?.name ? `Matches for ${r.cv?.name ?? r.preview?.name}` : 'Your matches'}</h1>
+<div class="page-heading">
+	<h1>Your job matches</h1>
+	<p class="cv-summary"><span>{r?.filename ?? r?.cv?.name ?? 'Your saved CV'}</span><a href={resolve('/')}>Change CV</a></p>
+</div>
+
 {#if storageWarning}<p class="notice" role="status">{storageWarning}</p>{/if}
 {#if result.error}
-	<p class="error" role="alert">{result.error.message} Showing the last received or saved data, which may be out of date. Your result link is saved.</p>
-	<button onclick={() => void result.reconnect()}>Reconnect</button>
+	<div class="notice" role="alert"><p>We couldn't load your latest jobs.{shown.length ? ' Your saved jobs are below.' : ''}</p><button onclick={() => void result.reconnect()}>Try again</button></div>
+{:else if r && !terminal}
+	<p class="status" aria-live="polite">{r.status === 'parsing' ? 'Reading your CV…' : 'Finding jobs for you…'}</p>
+{:else if r?.status === 'waiting_for_jobs'}
+	<p class="status" aria-live="polite">New jobs are on their way. We'll keep looking for you.</p>
+{:else if r?.status === 'failed' || r?.status === 'partial'}
+	<div class="notice" role="status"><p>{r.status === 'partial' ? 'Some jobs could not be checked.' : 'We couldn’t finish your search.'}</p><button disabled={busy} onclick={() => void run('retry')}>Try again</button></div>
 {/if}
 
-{#if r && data}
-	<p class="status" aria-live="polite">
-		{#if r.status === 'queued'}Your résumé is queued for processing.
-		{:else if r.status === 'parsing'}Reading your résumé…
-		{:else if r.status === 'matching'}
-			{#if r.progress.total === 0}Finding open roles that fit…
-			{:else}Scored {r.progress.succeeded.toLocaleString()} of {r.progress.total.toLocaleString()} shortlisted roles. {r.progress.pending.toLocaleString()} pending{r.progress.failed ? `, ${r.progress.failed.toLocaleString()} failed` : ''}…{/if}
-		{:else if r.status === 'waiting_for_jobs'}Waiting for the job catalog. Matching will resume when jobs are available.
-		{:else if r.status === 'failed'}This run needs attention. {r.error ?? 'Please retry.'}
-		{:else if r.status === 'partial'}Scored {r.progress.succeeded.toLocaleString()} roles; {r.progress.failed.toLocaleString()} could not be scored. You can retry those roles below.
-		{:else}Scored {r.progress.succeeded.toLocaleString()} of {r.progress.total.toLocaleString()} shortlisted roles.{/if}
-	</p>
-	{#if r.status === 'parsing' && r.preview?.sections.length}<p class="muted small">Found {r.preview.sections.join(' · ')}…</p>{/if}
-	{#if !terminal}<progress max={r.progress.total || undefined} value={r.status === 'matching' && r.progress.total ? r.progress.attempted : undefined}></progress>{/if}
+<div class="tabs" role="tablist" aria-label="Job matches">
+	<button id="good-tab" role="tab" tabindex={category === 'good' ? 0 : -1} onkeydown={moveTab} aria-selected={category === 'good'} aria-controls="job-results" class:active={category === 'good'} onclick={() => chooseCategory('good')}>Good matches <span>{goodCount === undefined ? '—' : goodCount.toLocaleString()}</span></button>
+	<button id="other-tab" role="tab" tabindex={category === 'other' ? 0 : -1} onkeydown={moveTab} aria-selected={category === 'other'} aria-controls="job-results" class:active={category === 'other'} onclick={() => chooseCategory('other')}>Other jobs <span>{otherCount === undefined ? '—' : otherCount.toLocaleString()}</span></button>
+</div>
 
-	{#if r.search}
-		<dl class="counts" aria-label="Search coverage">
-			<div><dt>Open postings</dt><dd>{r.search.catalog_total.toLocaleString()}</dd></div>
-			<div><dt>Eligible postings</dt><dd>{r.search.eligible_total.toLocaleString()}</dd></div>
-			<div><dt>Keyword matches</dt><dd>{r.search.matching_postings.toLocaleString()}</dd></div>
-			<div><dt>Distinct roles</dt><dd>{r.search.distinct_roles.toLocaleString()}</dd></div>
-			<div><dt>Shortlisted</dt><dd>{r.search.shortlisted.toLocaleString()}</dd></div>
-			<div><dt>Scored</dt><dd>{r.progress.succeeded.toLocaleString()}</dd></div>
-			<div><dt>Failed</dt><dd>{r.progress.failed.toLocaleString()}</dd></div>
-			<div><dt>Pending</dt><dd>{r.progress.pending.toLocaleString()}</dd></div>
-		</dl>
-		<p class="muted small">Keyword retrieval selects up to {r.search.retrieval_limit.toLocaleString()} distinct roles for model scoring from eligible US, Canada and unspecified remote postings. {r.search.missing_descriptions ? `${r.search.missing_descriptions.toLocaleString()} shortlisted postings lack a full description.` : ''}</p>
-	{:else if r.progress.total > 0}
-		<p class="muted small">This saved run shortlisted {r.progress.total.toLocaleString()} roles. Earlier catalog and retrieval counts were not recorded.</p>
-	{/if}
-
-	{#if r.cv}
-		<details class="cv">
-			<summary>What we read from {r.filename ?? 'your résumé'}: {[r.cv.headline, r.cv.location].filter(Boolean).join(' · ') || 'View extracted sections'}</summary>
-			<ul>{#each r.cv.sections as section (section.title)}<li><strong>{section.title}</strong>: {section.entries.length} entries</li>{/each}</ul>
-			{#if r.rendercv_yaml}<a href="data:application/yaml;charset=utf-8,{encodeURIComponent(r.rendercv_yaml)}" download={fileName(r.cv.name)}>Download the RenderCV YAML file</a>{/if}
-		</details>
-		{#if !data.matches.candidate_location_known}
-			<p class="notice">This earlier run had no location to assess. All scored roles are shown. Refresh matching to use United States as the default location, or enter a location below.</p>
-		{:else if r.location_source === 'default'}
-			<p class="notice">Using United States because your résumé did not include a location.</p>
-		{/if}
-		<details class="location">
-			<summary>{r.effective_location ? `Update your location (${r.effective_location})` : 'Set a different location (optional)'}</summary>
-			<form onsubmit={(event) => { event.preventDefault(); void run('location'); }}>
-				<label for="location">Location to use when assessing roles</label>
-				<div class="actions"><input id="location" name="location" bind:value={location} placeholder={r.effective_location ?? 'United States'} minlength="2" maxlength="200" required />
-					<button disabled={busy || !terminal}>Save and rescore</button></div>
-				<p class="muted small">Updating this location reruns model scoring and adds to this run's cost.</p>
-			</form>
-		</details>
-	{/if}
-
-	{#if data.matches.results_are_previous}<p class="notice">Showing your previous results while the new run prepares scores. The counts above describe the new run.</p>{/if}
-	{#if data.matches.unfiltered_total > 0}
-		<label class="filter"><input type="checkbox" checked={nearbyOnly && data.matches.candidate_location_known} onchange={changeFilter} disabled={!data.matches.candidate_location_known || result.loading} />
-			Only roles likely accessible {r.effective_location ? `from ${r.effective_location}` : 'from my location'}{data.matches.nearby_total !== null ? ` (${data.matches.nearby_total.toLocaleString()})` : ''}</label>
-		<p class="muted small" aria-live="polite">Showing {data.matches.items.length.toLocaleString()} of {data.matches.total.toLocaleString()} {nearbyOnly && data.matches.candidate_location_known ? 'location-compatible' : 'scored'} roles{nearbyOnly && data.matches.candidate_location_known ? ` (${data.matches.unfiltered_total.toLocaleString()} scored in total)` : ''}.</p>
-		{#if data.matches.closed_total}<p class="muted small">{data.matches.closed_total.toLocaleString()} previously scored postings have closed and are excluded from these results.</p>{/if}
-		<p class="muted small">Scores are model assessments, not measured interview probabilities. Check each posting's requirements and location restrictions.</p>
-		<MatchList matches={data.matches.items} locationKnown={data.matches.candidate_location_known} />
-		{#if !data.matches.items.length}<p>No scored roles match this location filter. Clear it to see all roles.</p>{/if}
-		{#if data.matches.has_more}<button disabled={result.loading} onclick={() => limit += 100}>{result.loading ? 'Loading…' : 'Load 100 more roles'}</button>{/if}
-	{:else if r.status === 'done'}<p>{r.progress.total ? 'No saved roles are currently available.' : 'No roles were shortlisted from this catalog.'} You can refresh matching after the catalog changes.</p>{/if}
-
-	<div class="actions run-actions">
-		{#if r.status === 'partial' || r.status === 'failed'}<button disabled={busy} onclick={() => void run('retry')}>Retry incomplete work</button>{/if}
-		{#if terminal && r.cv}<button disabled={busy} onclick={() => void run('rematch')}>Refresh matching</button>{/if}
-		<a href={resolve('/')}>Résumé history</a>
+<div id="job-results" role="tabpanel" tabindex="0" aria-labelledby={category === 'good' ? 'good-tab' : 'other-tab'}>
+	<div class="results-caption">
+		<p>Best matches first.</p>
+		{#if category === 'other' && goodCount === 0}<p>No good matches yet.</p>{/if}
 	</div>
-	<p class="muted small">Estimated run cost ${r.cost_usd.toFixed(3)}. Result links and filters are saved in this browser.</p>
-	{#if confirmDelete}
-		<p>Delete this résumé and its saved results from the server and this browser?</p>
-		<div class="actions"><button disabled={busy} onclick={() => void run('delete')}>Delete résumé and results</button><button disabled={busy} onclick={() => confirmDelete = false}>Cancel</button></div>
-	{:else}<button class="text-button" onclick={() => confirmDelete = true}>Delete this résumé…</button>{/if}
-{:else}
-	<p aria-live="polite">{result.error ? 'Live results are unavailable.' : 'Loading your saved run…'}</p>
-	{#if cached?.snapshot}
-		<p class="notice">Saved browser preview from {new Date(cached.updatedAt).toLocaleString()}. {cached.snapshot.progress.succeeded.toLocaleString()} roles scored. This preview may be out of date.</p>
-		<MatchList matches={cachedMatches(cached)} />
+	{#if !data && !current && shown.length}<p class="saved-notice">Saved jobs. {result.error ? 'Check back when you’re online.' : 'Checking for updates…'}</p>{/if}
+	{#if current?.matches.results_are_previous}<p class="saved-notice">Here are your saved jobs while we look for new matches.</p>{/if}
+	{#if shown.length}
+		<MatchList matches={shown} />
+		{#if current?.matches.has_more || (activeTotal !== undefined && shown.length < activeTotal && data)}
+			<button class="load-more" disabled={result.loading} onclick={loadMore}>{result.loading ? 'Loading…' : 'Show more jobs'}</button>
+		{/if}
+	{:else if result.loading && !data}
+		<p class="empty" role="status">Loading your jobs…</p>
+	{:else if category === 'good'}
+		<div class="empty"><h2>No good matches yet.</h2><p>{r && !terminal ? 'We’re still looking. New matches will appear here.' : 'You can explore other jobs or try a different CV.'}</p></div>
+	{:else if r && !terminal}
+		<p class="empty" role="status">Your jobs will appear here as we find them.</p>
+	{:else}
+		<div class="empty"><h2>No jobs to show yet.</h2><p>Check back soon or try a different CV.</p></div>
 	{/if}
+</div>
+
+{#if r}
+	<details class="more-options">
+		<summary>More options</summary>
+		<div class="option-actions">
+			{#if terminal && r.cv}<button disabled={busy} onclick={() => void run('rematch')}>Look for new jobs</button>{/if}
+			{#if confirmDelete}
+				<p>Remove this CV and its saved jobs?</p>
+				<button disabled={busy} onclick={() => void run('delete')}>Remove CV</button>
+				<button disabled={busy} onclick={() => confirmDelete = false}>Cancel</button>
+			{:else}<button onclick={() => confirmDelete = true}>Remove this CV</button>{/if}
+		</div>
+	</details>
 {/if}
-{#if actionError}<p class="error" role="alert">{actionError}</p>{/if}
+{#if actionError}<p class="notice" role="alert">{actionError}</p>{/if}
 
 <style>
-	.status, .muted { color: var(--color-muted); }
-	.small { font-size: 0.85rem; }
-	.error { color: var(--color-accent); }
-	.notice { padding: 0.75rem 1rem; background: var(--color-surface); border-left: 3px solid var(--color-accent); }
-	progress { width: 100%; accent-color: var(--color-accent); }
-	.cv { margin-block: 1.5rem; padding: 0.75rem 1rem; border-radius: 0.5rem; background-color: var(--color-surface); }
-	summary { cursor: pointer; }
-	.cv ul { margin-block: 0.75rem; }
-	.location { margin-block: 1rem; }
-	.location form { margin-block: 1rem; }
-	.filter { display: flex; align-items: center; gap: 0.5rem; margin-block: 1.5rem 0.5rem; }
-	.counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; padding: 1rem; background: var(--color-surface); border-radius: 0.5rem; }
-	dt { color: var(--color-muted); font-size: 0.8rem; } dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
-	.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-block: 0.5rem; }
-	.run-actions { margin-top: 1.5rem; }
-	input[name='location'] { min-width: 0; flex: 1; padding: 0.4rem 0.5rem; }
-	.text-button { padding: 0; background: none; border: 0; color: var(--color-muted); text-decoration: underline; cursor: pointer; }
-	@media (max-width: 520px) { .counts { grid-template-columns: repeat(2, 1fr); } }
+	h1 { margin: 0; font-size: clamp(1.8rem, 5vw, 2.4rem); line-height: 1.2; letter-spacing: -0.04em; }
+	.page-heading { margin-bottom: 2.3rem; }
+	.cv-summary { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin: 0.85rem 0 0; font-size: 0.85rem; }
+	.cv-summary span { color: var(--color-muted); overflow-wrap: anywhere; }
+	.cv-summary a { flex: none; font-weight: 500; }
+	.status { color: var(--color-muted); margin-block: 0 1.5rem; }
+	.tabs { display: flex; gap: 1.8rem; border-bottom: 1px solid var(--color-border); }
+	.tabs button { display: flex; align-items: center; gap: 0.6rem; padding: 0 0 0.9rem; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--color-muted); cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+	.tabs button.active { color: var(--color-text); border-bottom-color: var(--color-accent); }
+	.tabs span { padding: 0.1rem 0.45rem; border-radius: 0.35rem; background: var(--color-surface); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+	.results-caption { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; color: var(--color-muted); font-size: 0.8rem; }
+	.results-caption p { margin: 0; }
+	.notice { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.85rem 1rem; margin-block: 1rem; border-radius: 0.5rem; background: var(--color-surface); font-size: 0.9rem; }
+	.notice p { margin: 0; }
+	.notice button { flex: none; }
+	.saved-notice { color: var(--color-muted); font-size: 0.85rem; }
+	.empty { margin: 0; padding: 3rem 1rem; text-align: center; color: var(--color-muted); }
+	.empty h2 { margin: 0 0 0.5rem; color: var(--color-text); font-size: 1.1rem; }
+	.empty p { margin: 0; font-size: 0.9rem; }
+	.load-more { display: block; width: 100%; padding: 0.8rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background: none; color: var(--color-text); cursor: pointer; font-size: 0.9rem; }
+	.load-more:hover { background: var(--color-surface); }
+	.more-options { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--color-border); color: var(--color-muted); font-size: 0.8rem; }
+	.more-options summary { width: fit-content; cursor: pointer; }
+	.option-actions { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-block: 1rem; }
+	.option-actions p { flex-basis: 100%; margin: 0; }
+	.option-actions button, .notice button { border: 0; padding: 0; background: none; color: var(--color-accent); text-decoration: underline; cursor: pointer; font-size: inherit; }
+	button:disabled { opacity: 0.6; cursor: wait; }
 </style>

@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 import { streamResume, waitForPoll } from '../src/lib/server/resume-stream.ts';
 import { match, result, resumeId } from './fixtures.ts';
-const input = { id: resumeId, nearby: true, limit: 100 };
+const input = { id: resumeId, nearby: false, limit: 20, category: 'good' as const };
 
 test('forwards location filtering before pagination and stops after partial completion', async () => {
-	const sample = result(); sample.resume.status = 'partial';
+	const sample = result(); sample.resume.status = 'partial'; sample.matches.limit = 20;
 	const paths: string[] = [];
 	const controller = new AbortController();
 	const stream = streamResume(input, controller.signal, async (path, init) => {
@@ -13,7 +13,7 @@ test('forwards location filtering before pagination and stops after partial comp
 	});
 	expect((await stream.next()).value).toEqual(sample);
 	expect((await stream.next()).done).toBe(true);
-	expect(paths[1]).toContain('nearby=true&limit=100&offset=0');
+	expect(paths[1]).toContain('nearby=false&limit=20&offset=0&category=good');
 });
 
 test('loads beyond one API page instead of silently truncating at the first 100', async () => {

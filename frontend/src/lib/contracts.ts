@@ -1,4 +1,6 @@
 /** Shared browser/server contract for the résumé API. */
+export type MatchCategory = 'all' | 'good' | 'other';
+export type JobTab = Exclude<MatchCategory, 'all'>;
 export type ResumeStatus = 'queued' | 'parsing' | 'matching' | 'waiting_for_jobs' | 'done' | 'partial' | 'failed';
 export interface Progress {
 	done: number;
@@ -76,6 +78,8 @@ export interface MatchResults {
 	items: Match[];
 	total: number;
 	unfiltered_total: number;
+	good_total: number;
+	other_total: number;
 	closed_total: number;
 	nearby_total: number | null;
 	offset: number;

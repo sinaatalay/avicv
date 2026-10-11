@@ -28,6 +28,7 @@ const resumeId = v.pipe(v.string(), v.regex(/^[a-f0-9]{32}$/));
 export const watchResume = query.live(v.object({
 	id: resumeId,
 	nearby: v.boolean(),
+	category: v.picklist(['all', 'good', 'other']),
 	limit: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(10000))
 }), async function* (input) {
 	const { request } = getRequestEvent();

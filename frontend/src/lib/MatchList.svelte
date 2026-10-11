@@ -1,55 +1,75 @@
 <script lang="ts">
 	import type { Match } from './contracts.ts';
-	let { matches, locationKnown = false }: { matches: Match[]; locationKnown?: boolean } = $props();
-	const percent = (value: number) => `${Math.round(value * 100)}%`;
+	let { matches }: { matches: Match[] } = $props();
+
 	function salary(match: Match) {
 		if (match.salary_min === null || !match.salary_currency) return null;
 		try {
-			const format = new Intl.NumberFormat('en', { style: 'currency', currency: match.salary_currency, notation: 'compact', maximumFractionDigits: 0 });
-			const range = match.salary_max && match.salary_max !== match.salary_min ? `${format.format(match.salary_min)}–${format.format(match.salary_max)}` : format.format(match.salary_min);
+			const format = new Intl.NumberFormat('en', {
+				style: 'currency', currency: match.salary_currency,
+				notation: 'compact', maximumFractionDigits: 0
+			});
+			const range = match.salary_max && match.salary_max !== match.salary_min
+				? `${format.format(match.salary_min)}–${format.format(match.salary_max)}`
+				: format.format(match.salary_min);
 			return match.salary_interval ? `${range} / ${match.salary_interval}` : range;
 		} catch { return null; }
 	}
-	function sourceVerification(match: Match) {
-		const date = match.source_verified_at ? new Date(match.source_verified_at) : null;
-		return date && !Number.isNaN(date.getTime())
-			? `Source last verified ${date.toLocaleString()}. Check the original posting for availability.`
-			: 'A recent source verification is unavailable. Check the original posting for availability.';
+	function locationLabel(match: Match) {
+		const locations = [...new Set(match.locations.filter(Boolean))];
+		let label = locations.slice(0, 3).join(' · ');
+		if (locations.length > 3) label += ` +${locations.length - 3} more`;
+		const workplace = match.workplace_type === 'remote' ? 'Remote' : match.workplace_type === 'hybrid' ? 'Hybrid' : null;
+		if (workplace && !locations.some((location) => location.toLowerCase().includes(workplace.toLowerCase()))) {
+			label += `${label ? ' · ' : ''}${workplace}`;
+		}
+		return label;
 	}
-	function safeUrl(url: string | null) { return url && /^https?:\/\//.test(url) ? url : null; }
+	function applicationUrl(match: Match) {
+		return match.catalog_status !== 'closed' && match.url && /^https?:\/\//.test(match.url)
+			? match.url : null;
+	}
 </script>
 
 <ol class="matches">
 	{#each matches as match (match.job_key)}
 		{const pay = $derived(salary(match))}
-		{const url = $derived(safeUrl(match.url))}
-		<li>
-			<span class="score" title="Weighted model match score; not an interview probability">{percent(match.score)}</span>
-			<div>
-				<h2>{#if url}<a href={url} target="_blank" rel="noopener noreferrer">{match.title}</a>{:else}{match.title}{/if}</h2>
-				<p>{match.company}<span class="muted">{match.locations.length ? ` · ${match.locations.slice(0, 3).join(' · ')}` : ''}</span>
-					{#if match.locations.length > 3}<span class="muted"> +{match.locations.length - 3} more</span>{/if}</p>
-				<p class="tags">
-					{#if match.workplace_type}<span>{match.workplace_type}</span>{/if}
-					{#if pay}<span>{pay}</span>{/if}
-					{#if match.seniority === 'below'}<span>A step up for you</span>{/if}
-					{#if match.seniority === 'above'}<span>Below your level</span>{/if}
-					{#if locationKnown && match.location !== null && match.location < 0.5}<span>May need relocation</span>{/if}
-					{#if match.source_stale}<span title={sourceVerification(match)}>Source not recently verified</span>{/if}
-					{#if match.catalog_status !== 'open'}<span>{match.catalog_status === 'changed' ? 'Posting changed since scoring' : match.catalog_status === 'closed' ? 'Posting closed' : 'Posting needs verification'}</span>{/if}
-				</p>
-				<p class="muted small">Model assessment: interview fit {percent(match.interview)} · requirements match {percent(match.must_haves)}</p>
+		{const url = $derived(applicationUrl(match))}
+		{const location = $derived(locationLabel(match))}
+		<li class="job-card">
+			<div class="job-details">
+				<h2>{match.title}</h2>
+				{#if match.company}<p class="company">{match.company}</p>{/if}
+				{#if location}<p class="location">{location}</p>{/if}
+				{#if pay}<p class="salary">{pay}</p>{/if}
+				{#if match.catalog_status === 'closed'}
+					<p class="availability">Applications closed</p>
+				{:else if !url}
+					<p class="availability">Application link unavailable</p>
+				{:else if match.catalog_status === 'missing'}
+					<p class="availability">This listing may no longer be available.</p>
+				{/if}
 			</div>
+			{#if url}
+				<a class="apply" href={url} target="_blank" rel="noopener noreferrer"
+					aria-label={`Apply for ${match.title}${match.company ? ` at ${match.company}` : ''}`}>Apply <span aria-hidden="true">↗</span></a>
+			{/if}
 		</li>
 	{/each}
 </ol>
+
 <style>
-	.matches { padding: 0; list-style: none; }
-	.matches > li { display: flex; gap: 1rem; padding-block: 1rem; border-bottom: 1px solid var(--color-border); }
-	.score { flex: none; width: 3.5rem; font-size: 1.25rem; font-weight: 600; color: var(--color-accent); font-variant-numeric: tabular-nums; }
-	h2 { margin: 0; font-size: 1.05rem; } h2 a { color: inherit; }
-	.matches p { margin: 0.2rem 0 0; }
-	.tags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-	.tags span { padding: 0.05rem 0.5rem; border-radius: 999px; font-size: 0.8rem; background-color: var(--color-surface); }
-	.muted { color: var(--color-muted); } .small { font-size: 0.85rem; }
+	.matches { padding: 0; margin: 1rem 0 1.5rem; list-style: none; display: grid; gap: 0.85rem; }
+	.job-card { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding: 1.5rem; border: 1px solid var(--color-border); border-radius: 0.8rem; }
+	.job-details { min-width: 0; }
+	h2 { margin: 0 0 0.35rem; font-size: 1.08rem; line-height: 1.4; font-weight: 650; }
+	p { margin: 0.2rem 0 0; font-size: 0.9rem; }
+	.company { font-weight: 500; }
+	.location, .availability { color: var(--color-muted); }
+	.salary { margin-top: 0.55rem; font-size: 0.85rem; }
+	.availability { font-size: 0.8rem; }
+	.apply { flex: none; display: inline-flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.9rem; border-radius: 0.45rem; background: var(--color-accent); color: light-dark(white, var(--color-bg)); font-size: 0.9rem; font-weight: 600; text-decoration: none; }
+	.apply:hover { filter: brightness(0.92); }
+	.apply:focus-visible { outline: 2px solid var(--color-text); outline-offset: 3px; }
+	@media (max-width: 520px) { .job-card { align-items: flex-start; flex-direction: column; gap: 1rem; padding: 1.15rem; } .apply { align-self: flex-start; } }
 </style>

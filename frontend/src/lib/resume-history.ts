@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import type { Match, ResumeResults } from './contracts.ts';
+import type { JobTab, Match, MatchCategory, ResumeResults } from './contracts.ts';
 
 export const HISTORY_KEY = 'speedhack.resume-history.v1';
 const MAX_HISTORY = 10;
@@ -20,7 +20,12 @@ const matchSchema = v.object({
 	source_status: v.optional(text), source_verified_at: v.optional(nullableText), source_stale: v.optional(v.boolean())
 });
 const statusSchema = v.picklist(['queued', 'parsing', 'matching', 'waiting_for_jobs', 'done', 'partial', 'failed']);
+const categorySchema = v.picklist(['all', 'good', 'other']);
+const pageLimit = v.pipe(count, v.minValue(1), v.maxValue(10000));
 const snapshotSchema = v.object({
+	category: v.optional(categorySchema, 'all'),
+	goodTotal: v.optional(count),
+	otherTotal: v.optional(count),
 	status: statusSchema,
 	progress: v.object({ done: count, total: count, attempted: count, succeeded: count, failed: count, pending: count }),
 	total: count, unfilteredTotal: count,
@@ -29,8 +34,11 @@ const snapshotSchema = v.object({
 const entrySchema = v.object({
 	id: v.pipe(v.string(), v.regex(/^[a-f0-9]{32}$/)),
 	updatedAt: v.pipe(v.number(), v.minValue(0)),
-	nearbyOnly: v.boolean(),
-	limit: v.optional(v.pipe(count, v.minValue(1), v.maxValue(10000)), 100),
+	nearbyOnly: v.optional(v.boolean(), false),
+	category: v.optional(categorySchema, 'all'),
+	categoryChosen: v.optional(v.boolean(), false),
+	limits: v.optional(v.object({ good: pageLimit, other: pageLimit }), { good: 20, other: 20 }),
+	limit: v.optional(pageLimit, 20),
 	snapshot: v.nullable(snapshotSchema)
 });
 const historySchema = v.object({ version: v.literal(1), entries: v.pipe(v.array(entrySchema), v.maxLength(MAX_HISTORY)) });
@@ -45,7 +53,7 @@ function browserStorage(): StorageLike | undefined {
 
 /** SSR-safe, bounded and validated. Never trust URLs or shapes read from browser storage. */
 export function readHistory(storage = browserStorage()): HistoryResult {
-	if (!storage) return { entries: [], warning: typeof window === 'undefined' ? null : 'Browser storage is unavailable. Keep the results link to reopen this run.' };
+	if (!storage) return { entries: [], warning: typeof window === 'undefined' ? null : 'Could not save on this device. Bookmark this page to keep your jobs.' };
 	try {
 		const raw = storage.getItem(HISTORY_KEY);
 		if (!raw) return { entries: [], warning: null };
@@ -54,12 +62,12 @@ export function readHistory(storage = browserStorage()): HistoryResult {
 		if (!parsed.success) throw new Error('Invalid history');
 		return { entries: parsed.output.entries, warning: null };
 	} catch {
-		return { entries: [], warning: 'Saved browser history could not be read. Your server results are still available at their links.' };
+		return { entries: [], warning: 'Could not load your saved history. Your job links still work.' };
 	}
 }
 
 function writeHistory(entries: HistoryEntry[], storage: StorageLike | undefined): HistoryResult {
-	if (!storage) return { entries, warning: 'Browser storage is unavailable. Keep the results link to reopen this run.' };
+	if (!storage) return { entries, warning: 'Could not save on this device. Bookmark this page to keep your jobs.' };
 	try {
 		storage.setItem(HISTORY_KEY, JSON.stringify({ version: 1, entries }));
 		return { entries, warning: null };
@@ -68,23 +76,33 @@ function writeHistory(entries: HistoryEntry[], storage: StorageLike | undefined)
 		const compact = entries.map((entry) => ({ ...entry, snapshot: null }));
 		try {
 			storage.setItem(HISTORY_KEY, JSON.stringify({ version: 1, entries: compact }));
-			return { entries: compact, warning: 'Saved your result links and filters. Browser storage is full, so offline previews could not be saved.' };
+			return { entries: compact, warning: 'Your job links are saved. This device has no room for offline previews.' };
 		} catch {
-			return { entries, warning: 'Could not save in this browser. Keep the results link to reopen this run.' };
+			return { entries, warning: 'Could not save on this device. Bookmark this page to keep your jobs.' };
 		}
 	}
 }
 
-export function saveVisit(id: string, nearbyOnly: boolean, results?: ResumeResults, storage = browserStorage(), limit = 100): HistoryResult {
+export interface ViewPreferences {
+	category: JobTab;
+	categoryChosen: boolean;
+	limits: { good: number; other: number };
+}
+
+export function saveVisit(id: string, preferences: ViewPreferences, results?: ResumeResults, storage = browserStorage()): HistoryResult {
 	const previous = readHistory(storage).entries;
 	const existing = previous.find((entry) => entry.id === id);
 	const snapshot = results ? {
+		category: preferences.category,
 		status: results.resume.status, progress: results.resume.progress,
 		total: results.matches.total, unfilteredTotal: results.matches.unfiltered_total,
+		goodTotal: results.matches.good_total, otherTotal: results.matches.other_total,
 		items: results.matches.items.slice(0, MAX_CACHED_MATCHES)
-	} : (existing?.nearbyOnly === nearbyOnly ? existing.snapshot : null);
-	const parsed = v.safeParse(entrySchema, { id, nearbyOnly, limit, snapshot, updatedAt: Date.now() });
-	if (!parsed.success) return { entries: previous, warning: 'This result could not be cached. Your server results are still available at this link.' };
+	} : existing?.snapshot ?? null;
+	const parsed = v.safeParse(entrySchema, {
+		id, nearbyOnly: false, ...preferences, limit: preferences.limits[preferences.category], snapshot, updatedAt: Date.now()
+	});
+	if (!parsed.success) return { entries: previous, warning: 'Could not save this preview. Your jobs are still available at this link.' };
 	return writeHistory([parsed.output, ...previous.filter((entry) => entry.id !== id)].slice(0, MAX_HISTORY), storage);
 }
 
@@ -98,5 +116,9 @@ export function clearHistory(storage = browserStorage()): HistoryResult {
 	catch { return { entries: readHistory(storage).entries, warning: 'Could not clear browser history. Check your browser storage settings.' }; }
 }
 
-/** Snapshots deliberately omit résumé identity, contact details, parsed CV and uploaded PDF. */
-export function cachedMatches(entry: HistoryEntry | undefined): Match[] { return entry?.snapshot?.items ?? []; }
+/** Old snapshots contain mixed categories. Apply the same strict boundary before displaying them. */
+export function cachedMatches(entry: HistoryEntry | undefined, category: MatchCategory): Match[] {
+	const snapshot = entry?.snapshot;
+	if (!snapshot || (snapshot.category !== 'all' && snapshot.category !== category)) return [];
+	return snapshot.items.filter((match) => category === 'all' || (category === 'good' ? match.score > 0.8 : match.score <= 0.8));
+}

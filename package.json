@@ -4,8 +4,12 @@
 	"type": "module",
 	"workspaces": ["frontend"],
 	"scripts": {
-		"dev": "bun --cwd=frontend run dev",
+		"dev": "bun run --parallel dev:frontend dev:backend",
+		"dev:frontend": "bun --cwd=frontend run dev",
+		"dev:backend": "uv run --directory backend fastapi dev",
 		"build": "bun --cwd=frontend run build",
-		"check": "bun --cwd=frontend run check"
+		"check": "bun run --sequential check:frontend check:backend",
+		"check:frontend": "bun --cwd=frontend run check",
+		"check:backend": "cd backend && uv run ruff check && uv run ruff format --check && uv run ty check && uv run pytest"
 	}
 }

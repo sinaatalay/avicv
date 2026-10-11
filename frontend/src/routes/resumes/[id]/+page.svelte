@@ -4,6 +4,7 @@
 	import { untrack } from 'svelte';
 	import type { JobTab, ResumeResults } from '#lib/contracts.ts';
 	import MatchList from '#lib/MatchList.svelte';
+	import CopyGoodMatchLinks from '#lib/CopyGoodMatchLinks.svelte';
 	import { createTailorManager, type TailorStates } from '#lib/tailored-cvs.ts';
 	import { cachedMatches, forgetResume, readHistory, saveVisit, type HistoryEntry, type ViewPreferences } from '#lib/resume-history.ts';
 	import { deleteResume, rematchResume, retryResume, watchResume } from '../../resumes.remote.ts';
@@ -134,6 +135,7 @@
 <div id="job-results" role="tabpanel" tabindex="0" aria-labelledby={category === 'good' ? 'good-tab' : 'other-tab'}>
 	<div class="results-caption">
 		<p>Best matches first.</p>
+		{#if category === 'good'}{#key params.id}<CopyGoodMatchLinks resumeId={params.id} disabled={!goodCount} />{/key}{/if}
 		{#if category === 'other' && goodCount === 0}<p>No good matches yet.</p>{/if}
 	</div>
 	{#if !data && !current && shown.length}<p class="saved-notice">Saved jobs. {result.error ? 'Check back when you’re online.' : 'Checking for updates…'}</p>{/if}
@@ -180,7 +182,7 @@
 	.tabs button { display: flex; align-items: center; gap: 0.6rem; padding: 0 0 0.9rem; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--color-muted); cursor: pointer; font-size: 0.95rem; font-weight: 600; }
 	.tabs button.active { color: var(--color-text); border-bottom-color: var(--color-accent); }
 	.tabs span { padding: 0.1rem 0.45rem; border-radius: 0.35rem; background: var(--color-surface); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
-	.results-caption { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; color: var(--color-muted); font-size: 0.8rem; }
+	.results-caption { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; color: var(--color-muted); font-size: 0.8rem; }
 	.results-caption p { margin: 0; }
 	.notice { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.85rem 1rem; margin-block: 1rem; border-radius: 0.5rem; background: var(--color-surface); font-size: 0.9rem; }
 	.notice p { margin: 0; }

@@ -14,7 +14,7 @@ from backend.config import Settings
 from backend.db import connect, connect_app
 from backend.main import app
 from backend.matching import jev
-from backend.resumes import pipeline, queue
+from backend.resumes import pipeline, queue, router
 
 YAML = "cv:\n  name: Test Candidate\n  headline: Backend Engineer\n  location: Toronto, Canada\n  sections:\n    Skills:\n      - label: Languages\n        details: Python, Go\n"
 
@@ -619,3 +619,144 @@ def test_category_counts_are_zero_for_empty_results(settings: Settings) -> None:
     data = TestClient(app).get("/resumes/resume/match-results?category=good").json()
     assert data["good_total"] == data["other_total"] == data["total"] == 0
     assert data["items"] == [] and data["has_more"] is False
+
+
+def test_good_links_cover_every_ranked_match_beyond_page_limits(
+    settings: Settings,
+) -> None:
+    seed_resume(settings, queued=False)
+    conn = connect_app(settings.app_db)
+    for index in range(1, 526):
+        job = role(index) | {"apply_url": f"https://example.com/job/{index}"}
+        pipeline.save_score(
+            conn, "resume", 0, 0, job, replace(score(job), score=0.99 - index / 10000)
+        )
+    conn.commit()
+    conn.close()
+    client = TestClient(app)
+    page = client.get("/resumes/resume/match-results?category=good&limit=20").json()
+    assert len(page["items"]) == 20 and page["good_total"] == 525
+    response = client.get("/resumes/resume/good-match-links")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json() == {
+        "links": [f"https://example.com/job/{index}" for index in range(1, 526)]
+    }
+
+
+def test_good_links_share_card_urls_and_exclude_closed_unsafe_and_boundary_scores(
+    settings: Settings, jobs_db: Path
+) -> None:
+    seed_resume(settings, queued=False)
+    seed_resume(settings, "other-resume", queued=False)
+    conn = connect_app(settings.app_db)
+    catalog = connect(jobs_db)
+    cases = [
+        (1, 0.95, "https://example.com/shared", None),
+        (2, 0.99, "https://example.com/highest", None),
+        (3, 0.94, "https://example.com/shared", None),
+        (4, 0.8, "https://example.com/boundary", None),
+        (5, 0.90, "javascript:alert(1)", "https://example.com/fallback"),
+        (6, 1.0, "https://example.com/closed", None),
+        (7, 0.8000001, None, "http://example.com/missing-catalog"),
+        (8, 1.0, None, None),
+        (9, 1.0, "javascript:alert(1)", None),
+        (10, 1.0, "data:text/html,unsafe", None),
+        (11, 1.0, "https://example.com/\nunsafe", None),
+        (12, 1.0, "https://user:password@example.com/private", None),
+        (13, 1.0, "https://example.com:invalid/job", None),
+        (14, 1.0, "//example.com/relative", None),
+        (15, 1.0, "https:///missing-host", None),
+        (16, 1.0, "https://example.com/no-snapshot", None),
+        (17, 1.0, "https://%/invalid-host", None),
+        (18, 1.0, "https://example.com/" + "x" * 8192, None),
+    ]
+    for index, value, apply_url, source_url in cases:
+        original = catalog.execute(
+            "SELECT * FROM jobs WHERE id = ?", (index,)
+        ).fetchone()
+        job = (dict(original) if original else role(index)) | {
+            "locations": ["Toronto"],
+            "apply_url": apply_url,
+            "source_url": source_url,
+        }
+        pipeline.save_score(conn, "resume", 0, 0, job, replace(score(job), score=value))
+    conn.execute("UPDATE matches SET job_snapshot = NULL WHERE job_id = 16")
+    foreign = role(99) | {"apply_url": "https://example.com/foreign-resume"}
+    pipeline.save_score(
+        conn, "other-resume", 0, 0, foreign, replace(score(foreign), score=1)
+    )
+    conn.commit()
+    conn.close()
+    catalog.close()
+    client = TestClient(app)
+    expected = [
+        "https://example.com/highest",
+        "https://example.com/shared",
+        "https://example.com/fallback",
+        "http://example.com/missing-catalog",
+    ]
+    assert client.get("/resumes/resume/good-match-links").json() == {"links": expected}
+    page = client.get("/resumes/resume/match-results?category=good").json()
+    assert (
+        list(dict.fromkeys(item["url"] for item in page["items"] if item["url"]))
+        == expected
+    )
+    assert (
+        next(item for item in page["items"] if item["job_id"] == 7)["catalog_status"]
+        == "missing"
+    )
+    assert client.get("/resumes/unknown/good-match-links").status_code == 404
+
+
+def test_good_links_read_one_selected_generation_during_concurrent_rematch_publish(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_resume(settings)
+    conn = connect_app(settings.app_db)
+    for index, generation in [(1, 0), (2, 1)]:
+        job = role(index) | {
+            "apply_url": f"https://example.com/generation/{generation}"
+        }
+        pipeline.save_score(
+            conn, "resume", 0, generation, job, replace(score(job), score=0.9)
+        )
+    conn.commit()
+    conn.close()
+    client = TestClient(app)
+    old_links = {"links": ["https://example.com/generation/0"]}
+    assert (
+        client.get("/resumes/resume/match-results").json()["results_are_previous"]
+        is True
+    )
+    assert client.get("/resumes/resume/good-match-links").json() == old_links
+    original_catalog_states = router.catalog_states
+
+    def publish_during_read(app_conn, resume_id, generation, settings):
+        writer = connect_app(settings.app_db)
+        writer.execute(
+            "UPDATE resumes SET current_generation = 1 WHERE id = ?", (resume_id,)
+        )
+        # Deleting old results midway must not truncate the already-selected snapshot.
+        writer.execute(
+            "DELETE FROM matches WHERE resume_id = ? AND generation = 0", (resume_id,)
+        )
+        writer.commit()
+        writer.close()
+        return original_catalog_states(app_conn, resume_id, generation, settings)
+
+    monkeypatch.setattr(router, "catalog_states", publish_during_read)
+    assert client.get("/resumes/resume/good-match-links").json() == old_links
+    monkeypatch.setattr(router, "catalog_states", original_catalog_states)
+    assert client.get("/resumes/resume/good-match-links").json() == {
+        "links": ["https://example.com/generation/1"]
+    }
+
+
+def test_good_links_are_empty_for_existing_resume_without_good_results(
+    settings: Settings,
+) -> None:
+    seed_resume(settings, queued=False)
+    assert TestClient(app).get("/resumes/resume/good-match-links").json() == {
+        "links": []
+    }

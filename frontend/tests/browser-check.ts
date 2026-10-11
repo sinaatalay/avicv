@@ -10,6 +10,8 @@ const realEnvPath = resolve(import.meta.dir, '../.svelte-kit/generated/dev/env/c
 const readRealEnv = () => existsSync(realEnvPath) ? readFileSync(realEnvPath, 'utf8') : null;
 const originalRealEnv = readRealEnv();
 let apiAvailable = true;
+let bulkLinksMode: 'normal' | 'empty' | 'unavailable' = 'normal';
+let bulkLinkRequests = 0;
 let tailoringReady = false;
 let tailorPosts = 0;
 let pdfDownloads = 0;
@@ -44,6 +46,14 @@ let allMatches = Array.from({ length: 130 }, (_, index) => ({
 const api = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(request) {
 	if (!apiAvailable) return Response.json({ detail: 'Test unavailable' }, { status: 503 });
 	const url = new URL(request.url);
+	if (url.pathname.endsWith('/good-match-links')) {
+		bulkLinkRequests++;
+		if (bulkLinksMode === 'unavailable') return Response.json({ detail: 'Links unavailable' }, { status: 503 });
+		const links = bulkLinksMode === 'empty' ? [] : [...new Set(allMatches
+			.filter((item) => item.score > 0.8 && item.catalog_status !== 'closed' && item.url && /^https?:\/\//.test(item.url))
+			.map((item) => item.url!))];
+		return Response.json({ links });
+	}
 	if (url.pathname.endsWith('/tailor') && request.method === 'POST') {
 		const { job_key } = await request.json();
 		if (job_key === '2') return Response.json({ detail: 'This job’s description is unavailable. Choose another job.' }, { status: 422 });
@@ -166,6 +176,44 @@ try {
 	for (const term of ['Open postings', 'Keyword', 'shortlist', 'Estimated run cost', 'Model assessment', 'Source not recently verified', 'RenderCV']) {
 		assert.equal(body.includes(term), false, `No engineering copy: ${term}`);
 	}
+	const bulkCopy = `document.querySelector('.copy-all-button')`;
+	const clickBulkCopy = async () => {
+		const position = await evaluate(`(() => { const r = ${bulkCopy}.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+		await send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...position });
+		await send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...position });
+	};
+	const expectedGoodLinks = Array.from({ length: 115 }, (_, index) => `https://example.com/jobs/${index + 1}`).join('\n');
+	assert.equal(await evaluate(`${bulkCopy}?.textContent.trim()`), 'Copy all links');
+	assert.equal(await evaluate(`${bulkCopy}.firstElementChild.tagName.toLowerCase()`), 'svg', 'Bulk copy has a Lucide icon');
+	await clickBulkCopy();
+	await waitFor(`${bulkCopy}.textContent.trim() === 'Copied 115 links'`);
+	assert.equal(await evaluate(`navigator.clipboard.readText()`), expectedGoodLinks, 'Copies all 115 good links in rank order, including 95 jobs not yet rendered');
+	assert.equal(await evaluate(`document.querySelectorAll('.matches > li').length`), 20, 'Bulk copy does not expand or rely on visible cards');
+	assert.equal(bulkLinkRequests, 1);
+	bulkLinksMode = 'unavailable';
+	await clickBulkCopy();
+	await waitFor(`[...document.querySelectorAll('[role=status]')].some(node => /couldn.t load your links/i.test(node.textContent))`);
+	assert.equal(await evaluate(`navigator.clipboard.readText()`), expectedGoodLinks, 'An endpoint failure never copies a partial visible list');
+	bulkLinksMode = 'empty';
+	await clickBulkCopy();
+	await waitFor(`/no application links|no links available/i.test(document.body.innerText)`);
+	assert.equal(await evaluate(`navigator.clipboard.readText()`), expectedGoodLinks, 'An empty list preserves the clipboard');
+	bulkLinksMode = 'normal';
+	await evaluate(`for (const method of ['write', 'writeText']) Object.defineProperty(navigator.clipboard, method, { configurable: true, value: async () => { throw new Error('Denied'); } }); ${bulkCopy}.click()`);
+	await waitFor(`document.querySelector('#job-results textarea') !== null`);
+	assert.equal(await evaluate(`document.querySelector('#job-results textarea').value`), expectedGoodLinks, 'Clipboard denial exposes all links for manual copying');
+	await evaluate(`document.querySelector('#job-results textarea').focus()`);
+	assert.equal(await evaluate(`document.querySelector('#job-results textarea').selectionEnd`), expectedGoodLinks.length);
+	await clickTab('Other jobs');
+	await waitFor(selected('Other jobs'));
+	assert.equal(await evaluate(`${bulkCopy} === null`), true, 'Other jobs never offers bulk good-match copying');
+	assert.equal(await evaluate(`document.querySelector('#job-results textarea') === null`), true, 'Bulk fallback stays scoped to good matches');
+	await clickTab('Good matches');
+	await waitFor(`document.querySelectorAll('.matches > li').length === 20 && ${selected('Good matches')}`);
+	await changePage('Page.reload');
+	await waitFor(`document.querySelectorAll('.matches > li').length === 20 && ${selected('Good matches')}`);
+	const bulkDesktopShot = await send('Page.captureScreenshot', { format: 'png' });
+	await Bun.write(resolve(import.meta.dir, '../../.context/copy-all-links-desktop-fixture.png'), Buffer.from(bulkDesktopShot.data, 'base64'));
 	const firstApply = await evaluate(`[...document.querySelectorAll('.matches a')].find(a => a.textContent.trim().startsWith('Apply'))?.href`);
 	assert.equal(firstApply, 'https://example.com/jobs/1');
 	assert.equal(await evaluate(`[...document.querySelectorAll('.matches a')].find(a => a.textContent.trim().startsWith('Apply'))?.rel.includes('noopener')`), true);
@@ -246,6 +294,11 @@ try {
 	await assertActionRail();
 	const shot = await send('Page.captureScreenshot', { format: 'png' });
 	await Bun.write(resolve(import.meta.dir, '../../.context/job-actions-mobile-fixture.png'), Buffer.from(shot.data, 'base64'));
+	await clickTab('Good matches');
+	await waitFor(`document.querySelectorAll('.matches > li').length === 115 && ${selected('Good matches')}`);
+	assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth && ${bulkCopy}.getBoundingClientRect().right <= window.innerWidth`), true, 'Bulk action fits mobile without overflow');
+	const bulkMobileShot = await send('Page.captureScreenshot', { format: 'png' });
+	await Bun.write(resolve(import.meta.dir, '../../.context/copy-all-links-mobile-fixture.png'), Buffer.from(bulkMobileShot.data, 'base64'));
 	await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 1, mobile: true });
 	assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, 'Narrow phones have no horizontal overflow');
 	await assertActionRail(false);
@@ -261,7 +314,7 @@ try {
 	assert.equal(await evaluate(`${tab('Good matches')}.textContent.includes('0')`), true);
 	assert.deepEqual(exceptions, []);
 	assert.equal(readRealEnv(), originalRealEnv, 'The browser test must not modify the running dev server environment');
-	console.log('PASS: three actions, direct Apply links, clipboard success and denied fallback, durable tailoring and automatic PDF download after reload/tab switch, version revalidation, category boundary and counts, independent pagination, no percentages or diagnostics, history and preferences, offline/reconnect, mobile layout, zero-good fallback, browser isolation.');
+	console.log('PASS: bulk copying all 115 ranked good links beyond visible cards, bulk empty/error/denied states, three actions, direct Apply links, clipboard success and denied fallback, durable tailoring and automatic PDF download after reload/tab switch, version revalidation, category boundary and counts, independent pagination, no percentages or diagnostics, history and preferences, offline/reconnect, mobile layout, zero-good fallback, browser isolation.');
 
 } catch (error) { console.error(logs); throw error; }
 finally {

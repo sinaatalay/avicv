@@ -83,6 +83,7 @@ The frontend saves recent result links, filters, pagination preferences, and bou
 | `GET`  | `/resumes/{id}`                 | Status, progress, the parsed CV and its RenderCV YAML            |
 | `GET`  | `/resumes/{id}/matches`         | Scored roles, best first (`limit`, default 100); fills in while scoring |
 | `GET`  | `/resumes/{id}/match-results`   | Counts and results; `category=all\|good\|other`, `nearby`/`include_closed`, `limit` ≤ 500, `offset` |
+| `GET`  | `/resumes/{id}/good-match-links` | All unique available application URLs for good matches, ranked and unpaginated |
 | `POST` | `/resumes/{id}/retry`           | Resume failed processing or retry failed role scores             |
 | `POST` | `/resumes/{id}/rematch`         | Refresh against the catalog; optional JSON `location` override   |
 | `DELETE` | `/resumes/{id}`               | Delete uploaded PDF, parsed CV, queue entry, and saved scores     |

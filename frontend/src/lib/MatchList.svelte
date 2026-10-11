@@ -28,7 +28,7 @@
 		return label;
 	}
 	function applicationUrl(match: Match) {
-		return match.catalog_status !== 'closed' && match.url && /^https?:\/\//.test(match.url)
+		return match.catalog_status !== 'closed' && match.url && /^https?:\/\//i.test(match.url)
 			? match.url : null;
 	}
 </script>

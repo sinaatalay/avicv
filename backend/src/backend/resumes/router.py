@@ -11,11 +11,12 @@ import sqlite3
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, UploadFile
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter
 from pypdf import PdfReader
 from rendercv.schema.sample_generator import dictionary_to_yaml
 
@@ -32,6 +33,9 @@ MAX_BYTES = 10 * 1024 * 1024
 MAX_PAGES = 10
 GOOD_MATCH_THRESHOLD = 0.80
 MatchCategory = Literal["all", "good", "other"]
+MATCH_ORDER = "m.score DESC, m.job_key, m.questions"
+HTTP_URL = TypeAdapter(AnyHttpUrl)
+MAX_JOB_URL_LENGTH = 8192
 
 
 class ResumeCreated(BaseModel):
@@ -132,6 +136,10 @@ class MatchResults(BaseModel):
     effective_location: str | None
     location_source: LocationSource
     results_are_previous: bool
+
+
+class GoodMatchLinks(BaseModel):
+    links: list[str]
 
 
 class RematchRequest(BaseModel):
@@ -246,28 +254,7 @@ def get_match_results(
         resume = fetch_resume(resume_id, settings, connection=conn)
         effective_location, location_source = location_context(resume)
         known = effective_location is not None
-        # Resolve every grouped member's stable identity before pagination. The
-        # temporary table supports SQL filters without replacing snapshot fields.
-        states = catalog_states(conn, resume_id, resume["current_generation"], settings)
-        conn.execute("""
-            CREATE TEMP TABLE match_catalog (
-                job_key TEXT PRIMARY KEY, catalog_status TEXT NOT NULL,
-                source_status TEXT NOT NULL, source_verified_at TEXT, source_stale INTEGER NOT NULL
-            )
-        """)
-        conn.executemany(
-            "INSERT INTO match_catalog VALUES (?, ?, ?, ?, ?)",
-            [
-                (
-                    key,
-                    state["catalog_status"],
-                    state["source_status"],
-                    state["source_verified_at"],
-                    state["source_stale"],
-                )
-                for key, state in states.items()
-            ],
-        )
+        prepare_match_catalog(conn, resume_id, resume["current_generation"], settings)
         join = "JOIN match_catalog c ON c.job_key = m.job_key"
         closed = "c.catalog_status = 'closed'"
         status = "c.catalog_status"
@@ -308,7 +295,7 @@ def get_match_results(
         rows = conn.execute(
             f"""
             SELECT m.*, {status} AS catalog_status, c.source_status, c.source_verified_at, c.source_stale {filtered}
-            ORDER BY m.score DESC, m.job_key, m.questions LIMIT ? OFFSET ?
+            ORDER BY {MATCH_ORDER} LIMIT ? OFFSET ?
         """,
             [*params, limit, offset],
         ).fetchall()
@@ -332,6 +319,38 @@ def get_match_results(
         and bool(unfiltered_total)
         and bool(resume["has_requested_work"]),
     )
+
+
+@router.get("/{resume_id}/good-match-links")
+def get_good_match_links(
+    resume_id: str, settings: SettingsDep, response: Response
+) -> GoodMatchLinks:
+    """All available good links, in rank order, from one selected-result snapshot."""
+    conn = connect_app(settings.app_db)
+    try:
+        conn.execute("BEGIN")
+        resume = fetch_resume(resume_id, settings, connection=conn)
+        prepare_match_catalog(conn, resume_id, resume["current_generation"], settings)
+        rows = conn.execute(
+            f"""
+            SELECT m.job_snapshot FROM matches m
+            JOIN match_catalog c ON c.job_key = m.job_key
+            WHERE m.resume_id = ? AND m.generation = ? AND m.score > ?
+                AND c.catalog_status != 'closed'
+            ORDER BY {MATCH_ORDER}
+        """,
+            (resume_id, resume["current_generation"], GOOD_MATCH_THRESHOLD),
+        )
+        # Dict keys retain first occurrence, so duplicates keep their highest rank.
+        links: dict[str, None] = {}
+        for row in rows:
+            job = json.loads(row["job_snapshot"]) if row["job_snapshot"] else {}
+            if url := job_url(job):
+                links.setdefault(url, None)
+        response.headers["Cache-Control"] = "private, no-store"
+        return GoodMatchLinks(links=list(links))
+    finally:
+        conn.close()
 
 
 @router.get("/{resume_id}/matches")
@@ -516,6 +535,59 @@ def location_context(row: Any) -> tuple[str | None, LocationSource]:
     return location, "resume" if location else "unknown"
 
 
+def prepare_match_catalog(
+    conn: sqlite3.Connection, resume_id: str, generation: int, settings: Settings
+) -> None:
+    """Resolve all grouped identities once, before any filtering or pagination."""
+    states = catalog_states(conn, resume_id, generation, settings)
+    conn.execute("""
+        CREATE TEMP TABLE match_catalog (
+            job_key TEXT PRIMARY KEY, catalog_status TEXT NOT NULL,
+            source_status TEXT NOT NULL, source_verified_at TEXT, source_stale INTEGER NOT NULL
+        )
+    """)
+    conn.executemany(
+        "INSERT INTO match_catalog VALUES (?, ?, ?, ?, ?)",
+        [
+            (
+                key,
+                state["catalog_status"],
+                state["source_status"],
+                state["source_verified_at"],
+                state["source_stale"],
+            )
+            for key, state in states.items()
+        ],
+    )
+
+
+def job_url(job: dict[str, Any]) -> str | None:
+    """Choose a usable application/source URL without allowing active schemes."""
+    for value in (job.get("apply_url"), job.get("source_url")):
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > MAX_JOB_URL_LENGTH
+            or not value.lower().startswith(("http://", "https://"))
+            or "\\" in value
+            or any(
+                char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value
+            )
+        ):
+            continue
+        try:
+            # Validation may normalize a malformed https:///host; never return
+            # the original value unless it already has an explicit authority.
+            if not urlsplit(value).netloc:
+                continue
+            parsed = HTTP_URL.validate_python(value)
+            if parsed.host and parsed.username is None and parsed.password is None:
+                return value
+        except ValueError:
+            continue
+    return None
+
+
 def match_for_display(row: Any, location_known: bool) -> Match:
     job = json.loads(row["job_snapshot"]) if row["job_snapshot"] else {}
     return Match(
@@ -525,7 +597,7 @@ def match_for_display(row: Any, location_known: bool) -> Match:
         company=job.get("company"),
         locations=json.loads(row["locations"]),
         workplace_type=job.get("workplace_type"),
-        url=job.get("apply_url") or job.get("source_url"),
+        url=job_url(job),
         salary_min=job.get("salary_min"),
         salary_max=job.get("salary_max"),
         salary_currency=job.get("salary_currency"),

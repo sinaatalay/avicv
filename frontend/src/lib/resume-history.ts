@@ -12,7 +12,7 @@ const nullableText = v.nullable(text);
 const matchSchema = v.object({
 	job_id: count, job_key: text, title: text, company: nullableText,
 	locations: v.pipe(v.array(text), v.maxLength(100)), workplace_type: nullableText,
-	url: v.nullable(v.pipe(text, v.url(), v.check((url) => /^https?:\/\//.test(url)))),
+	url: v.nullable(v.pipe(text, v.url(), v.check((url) => /^https?:\/\//i.test(url)))),
 	salary_min: v.nullable(v.number()), salary_max: v.nullable(v.number()), salary_currency: nullableText,
 	salary_interval: nullableText, posted_at: nullableText, score, fit: v.pipe(v.number(), v.minValue(0), v.maxValue(4)),
 	interview: score, must_haves: score, location: v.nullable(score), seniority: v.picklist(['below', 'matches', 'above']),

@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
@@ -137,8 +138,8 @@ def test_upload_parses_and_matches(
         assert response.status_code == 202
         resume_id = response.json()["id"]
 
-        # The test client runs background tasks before returning, so the pipeline is done
-        resume = client.get(f"/resumes/{resume_id}").json()
+        # The durable worker runs independently of the request lifecycle.
+        resume = wait_for_resume(client, resume_id)
         assert resume["status"] == "done", resume["error"]
         assert resume["cv"]["name"] == "Jordan Lee"
         # What the page showed while Gemini was still writing
@@ -156,7 +157,14 @@ def test_upload_parses_and_matches(
             or "+1-403-555-0182" in resume["rendercv_yaml"]
         )
         # Three open US/Canada roles: the two Stripe postings are one role, Monzo (UK) and the closed job are out
-        assert resume["progress"] == {"done": 3, "total": 3}
+        assert resume["progress"] == {
+            "done": 3,
+            "total": 3,
+            "succeeded": 3,
+            "failed": 0,
+            "attempted": 3,
+            "pending": 0,
+        }
         assert resume["cost_usd"] == pytest.approx(3 * 2000 * jev.PRICE_PER_MTOK / 1e6)
 
         matches = client.get(f"/resumes/{resume_id}/matches").json()
@@ -192,7 +200,7 @@ def test_unreadable_resume_fails_cleanly(
         resume_id = client.post(
             "/resumes", files={"file": ("x.pdf", make_pdf(), "application/pdf")}
         ).json()["id"]
-        resume = client.get(f"/resumes/{resume_id}").json()
+        resume = wait_for_resume(client, resume_id)
     assert resume["status"] == "failed"
     assert resume["error"] == "We couldn't read a résumé from this PDF."
 
@@ -204,9 +212,9 @@ def test_matching_without_jobs_yet(
         resume_id = client.post(
             "/resumes", files={"file": ("cv.pdf", make_pdf(), "application/pdf")}
         ).json()["id"]
-        resume = client.get(f"/resumes/{resume_id}").json()
-        assert resume["status"] == "done"
-        assert resume["progress"] == {"done": 0, "total": 0}
+        resume = wait_for_resume(client, resume_id, {"waiting_for_jobs"})
+        assert resume["status"] == "waiting_for_jobs"
+        assert resume["progress"]["total"] == 0
         assert client.get(f"/resumes/{resume_id}/matches").json() == []
     assert typesafe == []
 
@@ -233,3 +241,18 @@ def test_unknown_resume(settings: Settings) -> None:
     with TestClient(app) as client:
         assert client.get("/resumes/nope").status_code == 404
         assert client.get("/resumes/nope/matches").status_code == 404
+
+
+def wait_for_resume(
+    client: TestClient, resume_id: str, statuses: set[str] | None = None
+) -> dict:
+    statuses = statuses or {"done", "partial", "failed"}
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        response = client.get(f"/resumes/{resume_id}")
+        assert response.status_code == 200
+        data = response.json()
+        if data["status"] in statuses:
+            return data
+        time.sleep(0.02)
+    pytest.fail(f"Worker did not finish: {data}")

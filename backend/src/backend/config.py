@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -15,21 +15,26 @@ class Settings(BaseSettings):
 
     openrouter_api_key: SecretStr | None = None
     typesafe_api_key: SecretStr | None = None
-
-    # jobs.db (written by `jobs-ingest`) and app.db (résumés and matches) live here
     data_dir: Path = BACKEND_DIR / "data"
-
-    # Résumé parsing: OpenRouter model and its reasoning effort
     parse_model: str = "google/gemini-3.8-flash"
     parse_reasoning: Literal["none", "minimal", "low", "medium", "high"] = "low"
-
-    # Matching: TypeSafe model, how many shortlisted jobs to score, and how many requests in flight
     jev_model: str = "jev-1.13.0"
-    match_limit: int = 1000
-    match_concurrency: int = 32
+    match_limit: int = Field(default=1000, ge=1, le=10000)
+    match_concurrency: int = Field(default=32, ge=1, le=128)
+    jobs_refresh_hours: float = Field(default=6, gt=0, le=168)
 
-    # `jobs-ingest` skips a run when the last successful one is more recent than this
-    jobs_refresh_hours: float = 6
+    # A SQLite lease permits only one active résumé across API worker processes.
+    queue_max_pending: int = Field(default=100, ge=1, le=10000)
+    queue_poll_seconds: float = Field(default=0.5, gt=0, le=30)
+    queue_lease_seconds: float = Field(default=60, ge=3, le=600)
+    catalog_retry_seconds: float = Field(default=30, ge=1, le=3600)
+    processing_timeout_seconds: float = Field(default=1800, ge=1, le=14400)
+
+    @field_validator("data_dir")
+    @classmethod
+    def resolve_data_dir(cls, value: Path) -> Path:
+        """Relative DATA_DIR always means relative to backend/, regardless of launch cwd."""
+        return (BACKEND_DIR / value.expanduser()).resolve()
 
     @property
     def jobs_db(self) -> Path:

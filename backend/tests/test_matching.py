@@ -4,9 +4,11 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from rendercv.schema.rendercv_model_builder import build_rendercv_dictionary_and_model
+from typesafe_sdk import AsyncTypeSafeClient
 
 from backend.matching.jev import (
     JobScore,
@@ -281,7 +283,7 @@ def test_unknown_location_is_not_scored_as_a_negative() -> None:
         outcomes = [
             outcome
             async for _, outcome in score_jobs(
-                Client(),
+                cast(AsyncTypeSafeClient, Client()),
                 {},
                 [{"id": 1, "content_hash": "x", "title": "Engineer"}],
                 concurrency=1,
@@ -316,7 +318,10 @@ def test_closing_scorer_cancels_all_inflight_requests() -> None:
             for i, title in enumerate(("fast", "slow1", "slow2"))
         ]
         stream = score_jobs(
-            Client(), {"location": "United States"}, jobs, concurrency=3
+            cast(AsyncTypeSafeClient, Client()),
+            {"location": "United States"},
+            jobs,
+            concurrency=3,
         )
         await anext(stream)
         assert active

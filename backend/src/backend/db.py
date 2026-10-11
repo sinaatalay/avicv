@@ -1,65 +1,77 @@
-"""SQLite access.
+"""SQLite storage and additive, transactional application migrations.
 
-There are two database files in the data directory:
-
-- `jobs.db` holds job postings. Only the `jobs-ingest` command writes it; the API opens it read-only.
-- `app.db` holds uploaded résumés and their match results, and is written by the API.
-
-Keeping them apart means a long ingest transaction never blocks an upload, and the jobs data can be
-rebuilt without touching users' results.
+Job snapshots belong to app.db: rebuilding the independently ingested jobs.db must
+never change the job to which a saved score refers.
 """
 
 import sqlite3
 from pathlib import Path
 
-APP_SCHEMA = """
+RESUMES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS resumes (
-    id              TEXT PRIMARY KEY,
-    created_at      TEXT NOT NULL,
-    filename        TEXT,
-    pdf_sha256      TEXT NOT NULL,
-    status          TEXT NOT NULL,              -- parsing | matching | done | failed
-    error           TEXT,
-    parse_preview   TEXT,                       -- JSON: name and section titles seen while parsing
-    rendercv_yaml   TEXT,                       -- the parsed CV, as RenderCV YAML
-    parse_seconds   REAL,
-    parse_cost_usd  REAL,
-    match_total     INTEGER NOT NULL DEFAULT 0, -- jobs shortlisted for scoring
-    match_done      INTEGER NOT NULL DEFAULT 0, -- jobs scored so far
-    match_cost_usd  REAL NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS matches (
-    resume_id       TEXT NOT NULL REFERENCES resumes (id) ON DELETE CASCADE,
-    job_id          INTEGER NOT NULL,           -- jobs.db: jobs.id
-    job_hash        TEXT NOT NULL,              -- jobs.db: jobs.content_hash when it was scored
-    questions       TEXT NOT NULL,              -- version of the Jev question set
-    score           REAL NOT NULL,              -- composite, 0 to 1
-    fit             REAL NOT NULL,              -- 0 to 4
-    interview       REAL NOT NULL,              -- probabilities, 0 to 1
-    must_haves      REAL NOT NULL,
-    location        REAL NOT NULL,
-    seniority       TEXT NOT NULL,              -- below | matches | above
-    locations       TEXT NOT NULL,              -- JSON array: every location of the role's postings
-    input_tokens    INTEGER,
-    scored_at       TEXT NOT NULL,
-    PRIMARY KEY (resume_id, job_id, questions)
-);
-CREATE INDEX IF NOT EXISTS matches_by_score ON matches (resume_id, score DESC);
+    id TEXT PRIMARY KEY, created_at TEXT NOT NULL, filename TEXT, pdf_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL, error TEXT, parse_preview TEXT, rendercv_yaml TEXT,
+    parse_seconds REAL, parse_cost_usd REAL,
+    match_total INTEGER NOT NULL DEFAULT 0, match_done INTEGER NOT NULL DEFAULT 0,
+    match_cost_usd REAL NOT NULL DEFAULT 0
+)
 """
+MATCHES_SCHEMA = """
+CREATE TABLE matches (
+    resume_id TEXT NOT NULL REFERENCES resumes (id) ON DELETE CASCADE,
+    job_key TEXT NOT NULL, candidate_revision INTEGER NOT NULL DEFAULT 0,
+    generation INTEGER NOT NULL DEFAULT 0,
+    job_id INTEGER NOT NULL, job_hash TEXT NOT NULL, questions TEXT NOT NULL,
+    job_snapshot TEXT, provider TEXT, board TEXT, source_id TEXT,
+    score REAL NOT NULL, fit REAL NOT NULL, interview REAL NOT NULL, must_haves REAL NOT NULL,
+    location REAL, seniority TEXT NOT NULL, locations TEXT NOT NULL,
+    input_tokens INTEGER, scored_at TEXT NOT NULL,
+    PRIMARY KEY (resume_id, candidate_revision, job_key, questions)
+)
+"""
+WORK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS resume_work (
+    resume_id TEXT NOT NULL REFERENCES resumes (id) ON DELETE CASCADE,
+    job_key TEXT NOT NULL, candidate_revision INTEGER NOT NULL, questions TEXT NOT NULL,
+    generation INTEGER NOT NULL, job_snapshot TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'succeeded', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0, error TEXT,
+    PRIMARY KEY (resume_id, candidate_revision, job_key, questions)
+)
+"""
+QUEUE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS resume_queue (
+    resume_id TEXT PRIMARY KEY REFERENCES resumes (id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'running', 'done')),
+    available_at REAL NOT NULL, owner TEXT, lease_until REAL,
+    attempts INTEGER NOT NULL DEFAULT 0
+)
+"""
+ADDED_COLUMNS = [
+    ("parse_preview", "TEXT"),
+    ("upload_pdf", "BLOB"),
+    ("match_attempted", "INTEGER NOT NULL DEFAULT 0"),
+    ("match_failed", "INTEGER NOT NULL DEFAULT 0"),
+    ("search_stats", "TEXT"),
+    ("results_context", "TEXT"),
+    ("candidate_revision", "INTEGER NOT NULL DEFAULT 0"),
+    ("work_generation", "INTEGER NOT NULL DEFAULT 1"),
+    ("planned_generation", "INTEGER NOT NULL DEFAULT -1"),
+    ("current_generation", "INTEGER NOT NULL DEFAULT 0"),
+]
+SCHEMA_VERSION = 2
 
 
 def connect(path: Path, *, readonly: bool = False) -> sqlite3.Connection:
-    """Open a connection with rows as `sqlite3.Row`. Read-only connections fail if the file is missing."""
+    path = path.expanduser().resolve()
     if readonly:
-        # Not mode=ro: SQLite deletes a WAL database's -shm file when the last connection closes,
-        # and older SQLite builds (macOS's 3.43, unlike Python's 3.53) can't open it read-only
-        # until the file exists again. mode=rw can recreate it; query_only blocks every write.
+        # mode=rw recreates a missing WAL shared-memory file on older SQLite builds;
+        # query_only prohibits SQL writes on this connection.
         conn = sqlite3.connect(f"{path.as_uri()}?mode=rw", uri=True)
         conn.execute("PRAGMA query_only = ON")
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path)
+        conn = sqlite3.connect(path, uri=True)
         conn.execute("PRAGMA journal_mode = WAL")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -67,16 +79,88 @@ def connect(path: Path, *, readonly: bool = False) -> sqlite3.Connection:
     return conn
 
 
-# Columns added after a table was first created: (table, column, declaration)
-ADDED_COLUMNS = [("resumes", "parse_preview", "TEXT")]
-
-
 def connect_app(path: Path) -> sqlite3.Connection:
     conn = connect(path)
-    conn.executescript(APP_SCHEMA)
-    for table, column, declaration in ADDED_COLUMNS:
-        if column not in {
-            row["name"] for row in conn.execute(f"PRAGMA table_info({table})")
-        }:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version > SCHEMA_VERSION:
+        conn.close()
+        raise RuntimeError(f"Unsupported app.db schema version {version}")
+    if version == SCHEMA_VERSION:
+        return conn
+    try:
+        # Serialize migration with concurrent API startup; recheck after obtaining the lock.
+        conn.execute("BEGIN IMMEDIATE")
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version == SCHEMA_VERSION:
+            conn.commit()
+            return conn
+        conn.execute(RESUMES_SCHEMA)
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(resumes)")}
+        for name, declaration in ADDED_COLUMNS:
+            if name not in columns:
+                conn.execute(f"ALTER TABLE resumes ADD COLUMN {name} {declaration}")
+        match_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matches)")}
+        if match_columns and "job_key" not in match_columns:
+            conn.execute("ALTER TABLE matches RENAME TO matches_legacy")
+            conn.execute(MATCHES_SCHEMA)
+            conn.execute("""
+                INSERT INTO matches (resume_id, job_key, job_id, job_hash, questions,
+                    score, fit, interview, must_haves, location, seniority, locations,
+                    input_tokens, scored_at)
+                SELECT resume_id, 'legacy:' || job_id || ':' || job_hash, job_id, job_hash, questions,
+                    score, fit, interview, must_haves, location, seniority, locations,
+                    input_tokens, scored_at FROM matches_legacy
+            """)
+            conn.execute("DROP TABLE matches_legacy")
+        elif not match_columns:
+            conn.execute(MATCHES_SCHEMA)
+        # Early schema v1 installations required location even when unknown.
+        match_info = list(conn.execute("PRAGMA table_info(matches)"))
+        if any(
+            column["name"] == "location" and column["notnull"] for column in match_info
+        ):
+            conn.execute("ALTER TABLE matches RENAME TO matches_v1")
+            conn.execute(MATCHES_SCHEMA)
+            names = ", ".join(column["name"] for column in match_info)
+            conn.execute(
+                f"INSERT INTO matches ({names}) SELECT {names} FROM matches_v1"
+            )
+            conn.execute("DROP TABLE matches_v1")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS matches_by_score ON matches (resume_id, generation, score DESC)"
+        )
+        conn.execute(WORK_SCHEMA)
+        conn.execute(QUEUE_SCHEMA)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS queue_ready ON resume_queue (state, available_at)"
+        )
+        if version < 1:
+            # Old match_done counted failed attempts. Preserve that as attempted while
+            # deriving successful and failed counts from actual saved results.
+            conn.execute("""
+                UPDATE resumes SET match_attempted = MAX(match_done, (
+                    SELECT COUNT(*) FROM matches WHERE resume_id = resumes.id)),
+                    match_done = (SELECT COUNT(*) FROM matches WHERE resume_id = resumes.id)
+            """)
+            conn.execute(
+                "UPDATE resumes SET match_failed = MAX(0, match_attempted - match_done)"
+            )
+            conn.execute(
+                "UPDATE resumes SET status = 'partial' WHERE status = 'done' AND match_failed > 0"
+            )
+        # An unplanned run must not share the legacy visible generation.
+        conn.execute("""
+            UPDATE resumes SET work_generation = current_generation + 1
+            WHERE planned_generation = -1 AND work_generation <= current_generation
+        """)
+        conn.execute("""
+            UPDATE resumes SET results_context = search_stats
+            WHERE results_context IS NULL AND current_generation = planned_generation
+        """)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        conn.close()
+        raise
     return conn

@@ -31,7 +31,7 @@ bun run dev                               # frontend, API and job sync
 - SvelteKit: http://localhost:5173
 - FastAPI: http://127.0.0.1:8000, with interactive API docs at http://127.0.0.1:8000/docs
 
-The first job sync takes about a minute and writes `backend/data/jobs.db`. After that it refreshes every 6 hours.
+The first job sync writes `backend/data/jobs.db`. Complete syncs refresh every 6 hours; incomplete sources remain eligible for retry. Résumés wait for the first usable catalog automatically. Uploads, progress, and complete results persist in `backend/data/app.db`; browser history and view preferences also survive refresh through localStorage.
 
 ## Scripts
 
@@ -59,4 +59,6 @@ browser ──remote functions──▶ SvelteKit server (Bun) ──HTTP──�
 The frontend and backend deploy as two services:
 
 - **Backend:** `uv run fastapi run` in `backend/` (listens on `0.0.0.0:8000`), with the keys from `backend/.env.example` set. Also run `uv run jobs-ingest --loop` (or `uv run jobs-ingest` from cron) on the same disk, since it writes the jobs database the API reads.
-- **Frontend:** `bun run build`, then `bun ./build` in `frontend/` (listens on port 3000) with `API_URL` pointing at the backend and `BODY_SIZE_LIMIT=10M` so résumé PDFs fit. The Bun server assumes it sits behind an HTTPS proxy, so form submissions over plain HTTP fail its CSRF check. To try the production build locally, use `bun run preview` in `frontend/`, or set [`paths.origin`](https://svelte.dev/docs/kit/@sveltejs-kit-vite#paths).
+- **Frontend:** `bun run build`, then `bun ./build` in `frontend/` (listens on port 3000) with `API_URL` pointing at the backend and `BODY_SIZE_LIMIT=12M` to accommodate a 10 MiB PDF plus multipart overhead. The Bun server assumes it sits behind an HTTPS proxy, so form submissions over plain HTTP fail its CSRF check. To try the production build locally, use `bun run preview` in `frontend/`, or set [`paths.origin`](https://svelte.dev/docs/kit/@sveltejs-kit-vite#paths).
+
+Résumé links act as bearer access in this trusted/local app. Add authentication and per-user ownership before making a multi-user public deployment. Keep both SQLite databases on persistent storage.

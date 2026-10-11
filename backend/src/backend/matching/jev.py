@@ -9,7 +9,7 @@ import asyncio
 import logging
 import math
 import re
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -261,7 +261,7 @@ async def score_jobs(
     jobs: Sequence[Mapping[str, Any]],
     *,
     concurrency: int,
-) -> AsyncIterator[tuple[Mapping[str, Any], JobScore | Exception]]:
+) -> AsyncGenerator[tuple[Mapping[str, Any], JobScore | Exception]]:
     """Score every job, yielding results as they complete. A failed request yields its exception."""
     if concurrency < 1:
         raise ValueError("concurrency must be positive")

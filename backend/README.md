@@ -24,7 +24,7 @@ uv run fastapi dev          # http://127.0.0.1:8000, docs at /docs
 uv run jobs-ingest --loop   # fills data/jobs.db, then keeps it fresh
 ```
 
-`bun run dev` at the repository root starts both, along with the frontend. The first job sync takes about a minute. Until it finishes, résumés are parsed but have no roles to match against.
+`bun run dev` at the repository root starts both, along with the frontend. Until the first usable job sync finishes, parsed résumés wait in the durable queue and automatically continue when jobs become available.
 
 In production, run `uv run fastapi run` for the API. Run `uv run jobs-ingest` as its own service with `--loop`, or from cron or a systemd timer.
 
@@ -32,11 +32,12 @@ In production, run `uv run fastapi run` for the API. Run `uv run jobs-ingest` as
 
 `jobs-ingest` is the only process that writes `jobs.db`; the API opens it read-only. Each run works like this:
 
-- **Skips recent runs.** It does nothing if the last successful run is more recent than `JOBS_REFRESH_HOURS` (6). `--force` overrides this.
+- **Skips recent complete runs.** It does nothing if the last successful run is more recent than `JOBS_REFRESH_HOURS` (6). Failures, deferred details, partial results, and suspicious deletions remain eligible for retry. `--force` overrides freshness.
 - **Never overlaps.** A file lock next to the database stops two runs at once. That makes it safe to start from cron or a systemd timer as well as with `--loop`.
 - **Saves bandwidth.** Requests are conditional (ETags), so unchanged boards cost almost nothing.
 - **Updates in place.** Postings are upserted on (provider, board, posting id).
-- **Closes jobs carefully.** A job missing from a board is only marked closed when that board's fetch was complete and not suspiciously empty.
+- **Closes jobs carefully.** A job missing from a board is only marked closed when that board's fetch was complete and not suspiciously empty. Large removals require a repeated, identical set of missing IDs.
+- **Tracks source health.** Attempt time and successful verification time are separate. Scoped `--only` runs cannot mark the entire catalog healthy. SmartRecruiters detail freshness is tied to the corresponding listing revision.
 - **Keeps the search index current.** An FTS5 index over titles, companies, locations and descriptions is maintained by triggers.
 
 A cold sync takes about 80 seconds and downloads about 58 MB. A sync with no changes takes about a minute and about 3 MB, since every provider answers conditional requests. SmartRecruiters only returns descriptions from one request per posting, so each run fetches up to 50 per company. To fill them all at once, run `uv run jobs-ingest --force --sr-detail-cap 2000` (about 6 minutes).
@@ -47,16 +48,21 @@ To inspect `jobs.db`, use `uv run python` or a recent `sqlite3`. The `sqlite3` t
 
 ## How a résumé is processed
 
-`POST /resumes` checks the PDF and answers `202` with an ID right away. A background task then does the rest, recording progress in `data/app.db`:
+`POST /resumes` checks the PDF and answers `202` only after the upload and queue entry are committed to `data/app.db`. A worker claims one résumé at a time across all API processes sharing that database. Renewable leases, fenced writes, and saved per-role outcomes let processing recover after restarts without losing completed scores. The queue has a configurable capacity and attempt timeout.
 
 1. **Parse.** Gemini gets the PDF itself, which also works for scans, plus the link targets that `pypdf` finds in it.
    - It replies with RenderCV YAML, which RenderCV validates.
    - Up to three retries feed RenderCV's errors back to the model.
    - A typical résumé takes 5–15 seconds and costs about $0.01.
-2. **Shortlist.** The best `MATCH_LIMIT` (1,000) open US/Canada roles are picked by BM25 against the candidate's titles and skills. Postings of one role in several locations count as one role.
-3. **Score.** Jev answers five questions per role in one request: fit, interview chance, required qualifications, seniority, and whether the candidate can take the job without relocating.
+2. **Shortlist.** Full-text search ranks open US/Canada roles and remote roles with unspecified geography against titles, skills, education, publications, and project/experience highlights. Up to `MATCH_LIMIT` (1,000) distinct roles are scored. Equivalent postings in multiple locations count as one role; different descriptions or work arrangements remain separate. Diagnostics record catalog size, eligible postings, keyword matches, distinct roles, and the shortlist size.
+3. **Score.** Jev answers five questions per role in one request: fit, interview fit, required qualifications, seniority, and location compatibility. These are model estimates, not calibrated hiring probabilities.
    - Jev sees the professional content of the résumé only, never contact details. Years of experience are computed in code.
-   - 1,000 roles take about 5 seconds and cost about $0.11.
+   - The CV location is used when present; otherwise the candidate is assumed to be in the United States. A country-only location checks country eligibility without inventing a city or commute.
+   - At most `MATCH_CONCURRENCY` (32) requests run together. Attempts, successes, failures, and pending work are counted separately. Retrying a partial run requests only its failed roles. Cost is an estimate; provider latency and charges vary.
+
+Scores retain immutable job snapshots and stable provider identities, so a rebuilt catalog cannot attach an old score to a different job with a reused numeric ID. Matching fingerprints include candidate context, model, question version, and the actual job scoring input. Rematches preserve previous results until the replacement produces results. Legacy scores whose original job cannot be verified are displayed with unavailable details rather than guessed metadata.
+
+The frontend saves recent result links, filters, pagination preferences, and bounded job previews in localStorage. Full PDFs, parsed CVs, durable progress, and complete scores remain in SQLite. Back up both `app.db` and `jobs.db` using SQLite's backup API; copy neither live database without its WAL. This remains a trusted/local application: a résumé ID grants access, so public multi-user deployment requires authentication and ownership controls.
 
 ## API
 
@@ -65,6 +71,10 @@ To inspect `jobs.db`, use `uv run python` or a recent `sqlite3`. The `sqlite3` t
 | `POST` | `/resumes`                      | Upload a résumé PDF (form field `file`); returns its `id`        |
 | `GET`  | `/resumes/{id}`                 | Status, progress, the parsed CV and its RenderCV YAML            |
 | `GET`  | `/resumes/{id}/matches`         | Scored roles, best first (`limit`, default 100); fills in while scoring |
+| `GET`  | `/resumes/{id}/match-results`   | Counts and results; server-side `nearby`/`include_closed` filters, `limit` ≤ 500, `offset` |
+| `POST` | `/resumes/{id}/retry`           | Resume failed processing or retry failed role scores             |
+| `POST` | `/resumes/{id}/rematch`         | Refresh against the catalog; optional JSON `location` override   |
+| `DELETE` | `/resumes/{id}`               | Delete uploaded PDF, parsed CV, queue entry, and saved scores     |
 | `GET`  | `/resumes/{id}/rendercv.yaml`   | The parsed CV as a RenderCV YAML file                            |
 | `GET`  | `/jobs`                         | Search open postings (`q`, `geo`, `limit`)                       |
 | `GET`  | `/jobs/stats`                   | Open postings by provider and region, and the last sync          |
@@ -90,7 +100,9 @@ src/backend/
 ├ db.py              SQLite connections and the app.db schema
 ├ resumes/
 │ ├ parse.py         PDF → RenderCV with Gemini
-│ ├ pipeline.py      the background run: parse, shortlist, score
+│ ├ pipeline.py      resumable parse, shortlist, and score stages
+│ ├ queue.py         transactional claims, leases, and recovery
+│ ├ storage.py       snapshots, score identities, and progress
 │ └ router.py        /resumes endpoints
 ├ matching/
 │ ├ prefilter.py     FTS5 shortlist of roles

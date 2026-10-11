@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS resumes (
     pdf_sha256      TEXT NOT NULL,
     status          TEXT NOT NULL,              -- parsing | matching | done | failed
     error           TEXT,
+    parse_preview   TEXT,                       -- JSON: name and section titles seen while parsing
     rendercv_yaml   TEXT,                       -- the parsed CV, as RenderCV YAML
     parse_seconds   REAL,
     parse_cost_usd  REAL,
@@ -62,7 +63,16 @@ def connect(path: Path, *, readonly: bool = False) -> sqlite3.Connection:
     return conn
 
 
+# Columns added after a table was first created: (table, column, declaration)
+ADDED_COLUMNS = [("resumes", "parse_preview", "TEXT")]
+
+
 def connect_app(path: Path) -> sqlite3.Connection:
     conn = connect(path)
     conn.executescript(APP_SCHEMA)
+    for table, column, declaration in ADDED_COLUMNS:
+        if column not in {
+            row["name"] for row in conn.execute(f"PRAGMA table_info({table})")
+        }:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
     return conn

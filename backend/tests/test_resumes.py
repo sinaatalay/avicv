@@ -1,18 +1,18 @@
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelMessage, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from typesafe_sdk import AsyncTypeSafeClient
 
 from backend.config import Settings
 from backend.main import app
 from backend.matching import jev
-from backend.resumes import parse
+from backend.resumes import parse, pipeline
 
 CV_YAML = """\
 cv:
@@ -40,20 +40,35 @@ cv:
 """
 
 
+def streaming(text: str) -> FunctionModel:
+    """A fake model that always answers `text`, streamed in small chunks like Gemini's."""
+
+    async def stream(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str]:
+        for start in range(0, len(text), 40):
+            yield text[start : start + 40]
+
+    return FunctionModel(stream_function=stream)
+
+
 @pytest.fixture
 def gemini(monkeypatch: pytest.MonkeyPatch) -> list[list[ModelMessage]]:
     """Fake Gemini: first answers with a phone number RenderCV rejects, then with valid YAML."""
     calls: list[list[ModelMessage]] = []
 
-    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    async def stream(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str]:
         calls.append(messages)
         phone = "(403) 555-0182" if len(calls) == 1 else "+1 403 555 0182"
-        return ModelResponse(
-            parts=[TextPart("```yaml\n" + CV_YAML.format(phone=phone) + "```")]
-        )
+        text = "```yaml\n" + CV_YAML.format(phone=phone) + "```"
+        for start in range(0, len(text), 40):
+            yield text[start : start + 40]
 
-    model = FunctionModel(respond)
+    model = FunctionModel(stream_function=stream)
     monkeypatch.setattr(parse, "openrouter_model", lambda settings: model)
+    monkeypatch.setattr(pipeline, "PROGRESS_INTERVAL", 0)  # record every preview
     return calls
 
 
@@ -126,6 +141,11 @@ def test_upload_parses_and_matches(
         resume = client.get(f"/resumes/{resume_id}").json()
         assert resume["status"] == "done", resume["error"]
         assert resume["cv"]["name"] == "Jordan Lee"
+        # What the page showed while Gemini was still writing
+        assert resume["preview"] == {
+            "name": "Jordan Lee",
+            "sections": ["Summary", "Experience", "Skills"],
+        }
         assert [s["title"] for s in resume["cv"]["sections"]] == [
             "Summary",
             "Experience",
@@ -166,11 +186,7 @@ def test_upload_parses_and_matches(
 def test_unreadable_resume_fails_cleanly(
     settings: Settings, monkeypatch: pytest.MonkeyPatch, make_pdf: Callable[..., bytes]
 ) -> None:
-    model = FunctionModel(
-        lambda messages, info: ModelResponse(
-            parts=[TextPart("I can't find a résumé here.")]
-        )
-    )
+    model = streaming("I can't find a résumé here.")
     monkeypatch.setattr(parse, "openrouter_model", lambda settings: model)
     with TestClient(app) as client:
         resume_id = client.post(

@@ -58,12 +58,20 @@ class Progress(BaseModel):
     total: int
 
 
+class Preview(BaseModel):
+    """What parsing has found so far, while Gemini is still writing the CV"""
+
+    name: str | None
+    sections: list[str]
+
+
 class Resume(BaseModel):
     id: str
     status: Literal["parsing", "matching", "done", "failed"]
     error: str | None
     filename: str | None
     created_at: str
+    preview: Preview | None
     cv: Cv | None
     rendercv_yaml: str | None
     progress: Progress
@@ -133,6 +141,9 @@ def get_resume(resume_id: str, settings: SettingsDep) -> Resume:
         error=row["error"],
         filename=row["filename"],
         created_at=row["created_at"],
+        preview=Preview.model_validate_json(row["parse_preview"])
+        if row["parse_preview"]
+        else None,
         cv=cv_for_display(row["rendercv_yaml"]) if row["rendercv_yaml"] else None,
         rendercv_yaml=row["rendercv_yaml"],
         progress=Progress(done=row["match_done"], total=row["match_total"]),

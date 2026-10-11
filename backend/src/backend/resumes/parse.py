@@ -10,10 +10,18 @@ import io
 import json
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput
-from pydantic_ai.messages import ModelResponse
+from pydantic_ai.messages import (
+    ModelResponse,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+)
 from pydantic_ai.models import Model
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
@@ -220,7 +228,10 @@ def openrouter_model(settings: Settings) -> Model:
     return OpenRouterModel(settings.parse_model, provider=provider)
 
 
-async def parse_resume(pdf: bytes, settings: Settings) -> ParsedResume:
+async def parse_resume(
+    pdf: bytes, settings: Settings, on_text: Callable[[str], None] | None = None
+) -> ParsedResume:
+    """Parse a résumé PDF. `on_text`, if given, sees the YAML grow as Gemini streams it."""
     links = pdf_link_targets(pdf)
     note = (
         "Hyperlink targets embedded in the PDF, which the page images don't show:\n"
@@ -229,7 +240,7 @@ async def parse_resume(pdf: bytes, settings: Settings) -> ParsedResume:
         else "The PDF has no hyperlinks."
     )
     started = time.perf_counter()
-    result = await agent.run(
+    async with agent.iter(
         [
             "Convert this résumé.",
             BinaryContent(data=pdf, media_type="application/pdf"),
@@ -242,7 +253,27 @@ async def parse_resume(pdf: bytes, settings: Settings) -> ParsedResume:
             max_tokens=8_000,
             openrouter_reasoning={"effort": settings.parse_reasoning},
         ),
-    )
+    ) as run:
+        async for node in run:
+            # Stream each model request (a retry starts over), so progress shows as it's written
+            if on_text is not None and Agent.is_model_request_node(node):
+                text = ""
+                async with node.stream(run.ctx) as stream:
+                    async for event in stream:
+                        if isinstance(event, PartStartEvent) and isinstance(
+                            event.part, TextPart
+                        ):
+                            text += event.part.content
+                        elif isinstance(event, PartDeltaEvent) and isinstance(
+                            event.delta, TextPartDelta
+                        ):
+                            text += event.delta.content_delta
+                        else:
+                            continue
+                        on_text(text)
+
+    result = run.result
+    assert result is not None  # the run finished without raising
     responses = [m for m in result.all_messages() if isinstance(m, ModelResponse)]
     return ParsedResume(
         model=result.output,
@@ -253,6 +284,21 @@ async def parse_resume(pdf: bytes, settings: Settings) -> ParsedResume:
         input_tokens=result.usage.input_tokens,
         output_tokens=result.usage.output_tokens,
     )
+
+
+def preview(partial_yaml: str) -> dict[str, Any]:
+    """The name and section titles found so far in YAML that's still being written."""
+    name = re.search(
+        r"^  name: ['\"]?(.+?)['\"]?\s*$", partial_yaml, flags=re.MULTILINE
+    )
+    # Section titles are the only keys indented by four spaces (list items start with "- ")
+    titles = re.findall(
+        r"^    (['\"]?)([^\s'\"-][^\n]*?)\1:\s*$", partial_yaml, flags=re.MULTILINE
+    )
+    return {
+        "name": name.group(1) if name else None,
+        "sections": [title for _, title in titles],
+    }
 
 
 def load_yaml(text: str) -> RenderCVModel:

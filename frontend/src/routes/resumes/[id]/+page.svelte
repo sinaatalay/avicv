@@ -44,7 +44,8 @@
 		<p class="error">{r.error}</p>
 		<p><a href={resolve('/')}>Try another PDF</a></p>
 	{:else}
-		<h1>{r.cv?.name ? `Matches for ${r.cv.name}` : 'Your matches'}</h1>
+		{const name = $derived(r.cv?.name ?? r.preview?.name)}
+		<h1>{name ? `Matches for ${name}` : 'Your matches'}</h1>
 
 		<p class="status" aria-live="polite">
 			{#if r.status === 'parsing'}
@@ -59,6 +60,10 @@
 				Scored the {r.progress.total.toLocaleString()} roles closest to your résumé.
 			{/if}
 		</p>
+
+		{#if r.status === 'parsing' && r.preview?.sections.length}
+			<p class="muted small">Found {r.preview.sections.join(' · ')}…</p>
+		{/if}
 
 		{#if r.status !== 'done'}
 			<progress
@@ -97,7 +102,7 @@
 
 			<ol class="matches">
 				{#each shown as match (match.job_id)}
-					{const pay = salary(match)}
+					{const pay = $derived(salary(match))}
 					<li>
 						<span class="score" title="Overall fit">{percent(match.score)}</span>
 						<div>

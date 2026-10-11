@@ -15,7 +15,7 @@ from ..config import Settings
 from ..db import connect_app
 from ..matching import jev
 from ..matching.prefilter import shortlist
-from .parse import parse_resume
+from .parse import parse_resume, preview
 
 log = logging.getLogger(__name__)
 
@@ -24,9 +24,23 @@ PROGRESS_INTERVAL = 0.5  # seconds between progress writes while scoring
 
 async def process_resume(resume_id: str, pdf: bytes, settings: Settings) -> None:
     conn = connect_app(settings.app_db)
+    last_preview = {"at": 0.0, "value": ""}
+
+    def show_progress(partial_yaml: str) -> None:
+        if time.monotonic() - last_preview["at"] < PROGRESS_INTERVAL:
+            return
+        value = json.dumps(preview(partial_yaml))
+        if value != last_preview["value"]:
+            conn.execute(
+                "UPDATE resumes SET parse_preview = ? WHERE id = ?", (value, resume_id)
+            )
+            conn.commit()
+            last_preview["value"] = value
+        last_preview["at"] = time.monotonic()
+
     try:
         try:
-            parsed = await parse_resume(pdf, settings)
+            parsed = await parse_resume(pdf, settings, on_text=show_progress)
         except Exception:
             log.exception("Parsing résumé %s failed", resume_id)
             fail(conn, resume_id, "We couldn't read a résumé from this PDF.")

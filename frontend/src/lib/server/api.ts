@@ -30,6 +30,8 @@ export interface Resume {
 	error: string | null;
 	filename: string | null;
 	created_at: string;
+	/** What parsing has found so far, while Gemini is still writing the CV */
+	preview: { name: string | null; sections: string[] } | null;
 	cv: Cv | null;
 	/** The parsed CV as a RenderCV YAML file */
 	rendercv_yaml: string | null;

@@ -15,6 +15,7 @@
 		"test:browser": "bun tests/browser-check.ts"
 	},
 	"devDependencies": {
+		"@lucide/svelte": "^1.55.0",
 		"@sveltejs/adapter-bun": "^1.0.0",
 		"@sveltejs/kit": "^3.0.1",
 		"@sveltejs/vite-plugin-svelte": "^7.3.1",

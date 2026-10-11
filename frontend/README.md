@@ -1,6 +1,6 @@
 # frontend
 
-A vanilla [SvelteKit 3](https://svelte.dev/docs/kit) + [Svelte 5](https://svelte.dev/docs/svelte) + [Vite 8](https://vite.dev) app running on [Bun](https://bun.com). It was scaffolded with [`sv`](https://svelte.dev/docs/cli) (minimal template, TypeScript, no add-ons). Its only dependency beyond the framework is [Valibot](https://valibot.dev), which validates remote function input.
+A vanilla [SvelteKit 3](https://svelte.dev/docs/kit) + [Svelte 5](https://svelte.dev/docs/svelte) + [Vite 8](https://vite.dev) app running on [Bun](https://bun.com). It was scaffolded with [`sv`](https://svelte.dev/docs/cli) (minimal template, TypeScript, no add-ons). [Valibot](https://valibot.dev) validates input and [Lucide](https://lucide.dev/guide/svelte) supplies the job-action icons through `@lucide/svelte`.
 
 ## Requirements
 
@@ -27,7 +27,7 @@ The pages call the backend, so it has to be running. `bun run dev` at the reposi
 | `bun run preview`   | Preview the production build with Vite                     |
 | `bun run start`     | Run the built server (`bun ./build`, port 3000 by default) |
 | `bun run check`     | Type-check `.ts` and `.svelte` files with `svelte-check`   |
-| `bun run test` | Storage, pagination and live-query cancellation regressions |
+| `bun run test` | Storage, pagination, cancellation, tailoring lifecycle and PDF proxy regressions |
 | `bun run test:browser` | Isolated Chrome browser regression with a mock API (macOS) |
 
 The server reads `HOST`, `PORT` and other variables at startup — see the [adapter-bun docs](https://svelte.dev/docs/kit/adapter-bun#Environment-variables). Set `BODY_SIZE_LIMIT=12M` in production: the default of 512K is smaller than many résumé PDFs, and multipart encoding adds overhead above the 10 MiB PDF limit. The server assumes it runs behind HTTPS, so form submissions to `bun run start` over plain `http://localhost` are rejected as cross-site. Use `bun run preview` to try the production build locally.
@@ -52,6 +52,9 @@ src/
 │ ├ contracts.ts            shared API response types
 │ ├ resume-history.ts       versioned browser history and bounded result previews
 │ ├ MatchList.svelte        shared live/cached job cards
+│ ├ JobActions.svelte       Apply, Copy link and Tailor CV controls
+│ ├ tailored-cvs.ts         resumable tailoring and automatic PDF download
+│ ├ tailor-history.ts       bounded artifact references, without CV/PDF content
 │ └ server/api.ts           server-only, cancellation-aware FastAPI fetch helper
 └ routes/
   ├ +layout.svelte          app shell
@@ -68,7 +71,7 @@ bunfig.toml                 Bun config
 
 ## Remote functions
 
-Data flows through [remote functions](https://svelte.dev/docs/kit/remote-functions) rather than `load` functions, form actions or `+server.ts` endpoints. They are experimental in SvelteKit 3 and enabled in `vite.config.ts` (`experimental.remoteFunctions`, plus `compilerOptions.experimental.async` for `await` in components).
+Most data flows through [remote functions](https://svelte.dev/docs/kit/remote-functions). Tailoring uses same-origin `+server.ts` endpoints so the PDF response can stream from the backend. Remote functions are experimental in SvelteKit 3 and enabled in `vite.config.ts` (`experimental.remoteFunctions`, plus `compilerOptions.experimental.async` for `await` in components).
 
 - **`query`** reads data. Await it directly in markup. During SSR the server waits for it, so the HTML arrives with data. Wrap it in a `<svelte:boundary>` with a `failed` snippet to show errors inline.
 - **`form`** handles mutations from a `<form>`. Spread it onto the element so it also works without JavaScript. Validate its input with a [Valibot](https://valibot.dev) schema, and reuse that schema in the browser through `.preflight(...)`.
@@ -85,7 +88,13 @@ In this app:
 
 ## Results and browser persistence
 
-The results page focuses on the CV and two categories: **Good matches** (composite score strictly above 0.80) and **Other jobs** (at or below 0.80). Each category is sorted by descending match strength, with 20 jobs shown initially and more available on demand. Counts and category filtering happen in `/match-results` before pagination. Good matches open by default; a finished run with none opens Other jobs. Job cards show title, company, location, salary when available, and a direct **Apply** link. Percentages, model diagnostics, processing costs, and source metadata stay out of the interface.
+The results page focuses on the CV and two categories: **Good matches** (composite score strictly above 0.80) and **Other jobs** (at or below 0.80). Each category is sorted by descending match strength, with 20 jobs shown initially and more available on demand. Counts and category filtering happen in `/match-results` before pagination. Good matches open by default; a finished run with none opens Other jobs. Job cards show title, company, location, salary when available, and three actions: **Apply**, **Copy link**, and **Tailor CV**. Percentages, model diagnostics, processing costs, and source metadata stay out of the interface.
+
+Apply opens the original application URL in a separate tab. Copy link uses the browser clipboard; if permission is denied or the API is unavailable, a selectable application link appears on that card. Tailor CV starts a durable backend task, shows “Preparing CV…”, and automatically downloads its PDF when ready. A page-level controller continues polling when another job category is selected. Unmounting aborts polling requests and timers, while the backend continues processing. Clicking a completed Download CV button revalidates the backend’s current candidate, job and design version before downloading. A missing original layout is disclosed only on the relevant card.
+
+The three equal-width actions are stacked vertically on the right of each job card, with a Lucide icon to the left of every label. Copy and download states retain that alignment. On the narrowest phones (under 360px), the vertical rail moves below the details and stays right-aligned so job titles remain readable. Loading icons respect reduced-motion preferences.
+
+`tailor-history.ts` keeps at most 200 artifact references and pending-download flags under `speedhack.tailored-cvs.v1`. Refreshing resumes GET status checks without creating a new task; a completed automatic download is not repeated on later visits. The browser stores no generated PDF, CV content or backend URL. Forgetting a CV also removes its artifact references. If localStorage is unavailable, the current page still works and asks the user to keep it open. Status and PDF routes validate IDs; PDFs stream through the frontend with private, no-store caching, a validated attachment filename and a fixed PDF content type.
 
 A missing CV location defaults to United States for new backend scoring. The results page includes all locations; each job displays its location. Processing, retry, offline, and empty states use concise messages. Refreshing and deletion are secondary actions under More options.
 
@@ -93,7 +102,7 @@ A missing CV location defaults to United States for new backend scoring. The res
 
 The homepage reopens saved runs and can forget individual browser entries or clear browser history. The results page separately deletes server data after an explicit confirmation. Browser storage is local to that browser and origin; it is not an account or cross-device backup.
 
-The isolated browser check starts its own mock API and a frontend copied into a temporary directory, asserts that the running development server’s environment is unchanged, makes no model requests, and checks load-more, server filtering, persisted preferences, refresh, reopening history, unavailable-backend previews, reconnect and clearing history. It saves a screenshot under `.context/` and closes its temporary processes.
+The isolated browser check starts its own mock API and a frontend copied into a temporary directory, asserts that the running development server’s environment is unchanged, makes no model requests, and checks all three job actions, clipboard permission denial, actual PDF downloads after refresh/tab changes, load-more, server filtering, persisted preferences, reopening history, unavailable-backend previews, reconnect and clearing history. It saves a screenshot under `.context/` and closes its temporary processes.
 
 On the server, SvelteKit hands uploaded files over as proxies that only claim `File.prototype` through a `getPrototypeOf` trap. Bun's `instanceof` ignores that trap, so Valibot's `v.file()` rejects them. `schema.ts` checks the file's shape instead, and the handler copies the upload into a real `File` before forwarding it.
 

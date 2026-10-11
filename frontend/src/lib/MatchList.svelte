@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Match } from './contracts.ts';
-	let { matches }: { matches: Match[] } = $props();
+	import type { TailorStates } from './tailored-cvs.ts';
+	import JobActions from './JobActions.svelte';
+	let { matches, tailoring, onTailor }: { matches: Match[]; tailoring: TailorStates; onTailor: (jobKey: string) => void } = $props();
 
 	function salary(match: Match) {
 		if (match.salary_min === null || !match.salary_currency) return null;
@@ -50,17 +52,14 @@
 					<p class="availability">This listing may no longer be available.</p>
 				{/if}
 			</div>
-			{#if url}
-				<a class="apply" href={url} target="_blank" rel="noopener noreferrer"
-					aria-label={`Apply for ${match.title}${match.company ? ` at ${match.company}` : ''}`}>Apply <span aria-hidden="true">↗</span></a>
-			{/if}
+			<JobActions title={match.title} company={match.company} {url} tailoring={tailoring[match.job_key]} onTailor={() => onTailor(match.job_key)} />
 		</li>
 	{/each}
 </ol>
 
 <style>
 	.matches { padding: 0; margin: 1rem 0 1.5rem; list-style: none; display: grid; gap: 0.85rem; }
-	.job-card { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding: 1.5rem; border: 1px solid var(--color-border); border-radius: 0.8rem; }
+	.job-card { display: grid; grid-template-columns: minmax(0, 1fr) 10rem; align-items: center; gap: 1.5rem; padding: 1.5rem; border: 1px solid var(--color-border); border-radius: 0.8rem; }
 	.job-details { min-width: 0; }
 	h2 { margin: 0 0 0.35rem; font-size: 1.08rem; line-height: 1.4; font-weight: 650; }
 	p { margin: 0.2rem 0 0; font-size: 0.9rem; }
@@ -68,8 +67,6 @@
 	.location, .availability { color: var(--color-muted); }
 	.salary { margin-top: 0.55rem; font-size: 0.85rem; }
 	.availability { font-size: 0.8rem; }
-	.apply { flex: none; display: inline-flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.9rem; border-radius: 0.45rem; background: var(--color-accent); color: light-dark(white, var(--color-bg)); font-size: 0.9rem; font-weight: 600; text-decoration: none; }
-	.apply:hover { filter: brightness(0.92); }
-	.apply:focus-visible { outline: 2px solid var(--color-text); outline-offset: 3px; }
-	@media (max-width: 520px) { .job-card { align-items: flex-start; flex-direction: column; gap: 1rem; padding: 1.15rem; } .apply { align-self: flex-start; } }
+	@media (max-width: 520px) { .job-card { grid-template-columns: minmax(0, 1fr) 9.4rem; gap: 0.8rem; padding: 1rem; } h2 { font-size: 1rem; } }
+	@media (max-width: 359px) { .job-card { grid-template-columns: 1fr; } .job-card :global(.actions-area) { width: 9.4rem; justify-self: end; } }
 </style>

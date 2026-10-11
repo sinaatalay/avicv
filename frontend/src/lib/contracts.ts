@@ -91,3 +91,12 @@ export interface ResumeResults {
 	resume: Resume;
 	matches: MatchResults;
 }
+
+export type TailoredCvStatus = 'queued' | 'waiting_for_design' | 'tailoring' | 'rendering' | 'ready' | 'failed';
+export interface TailoredCv {
+	id: string;
+	status: TailoredCvStatus;
+	error: string | null;
+	download_url: string | null;
+	design_source: 'reconstructed' | 'default' | null;
+}

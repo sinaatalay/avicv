@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import type { JobTab, Match, MatchCategory, ResumeResults } from './contracts.ts';
+import { forgetTailoredCvs } from './tailor-history.ts';
 
 export const HISTORY_KEY = 'speedhack.resume-history.v1';
 const MAX_HISTORY = 10;
@@ -107,12 +108,13 @@ export function saveVisit(id: string, preferences: ViewPreferences, results?: Re
 }
 
 export function forgetResume(id: string, storage = browserStorage()): HistoryResult {
+	forgetTailoredCvs(id, storage);
 	return writeHistory(readHistory(storage).entries.filter((entry) => entry.id !== id), storage);
 }
 
 export function clearHistory(storage = browserStorage()): HistoryResult {
 	if (!storage) return { entries: [], warning: 'Browser storage is unavailable. Could not clear saved history.' };
-	try { storage?.removeItem(HISTORY_KEY); return { entries: [], warning: null }; }
+	try { storage?.removeItem(HISTORY_KEY); forgetTailoredCvs(undefined, storage); return { entries: [], warning: null }; }
 	catch { return { entries: readHistory(storage).entries, warning: 'Could not clear browser history. Check your browser storage settings.' }; }
 }
 

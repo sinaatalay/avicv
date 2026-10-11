@@ -4,6 +4,7 @@
 	import { untrack } from 'svelte';
 	import type { JobTab, ResumeResults } from '#lib/contracts.ts';
 	import MatchList from '#lib/MatchList.svelte';
+	import { createTailorManager, type TailorStates } from '#lib/tailored-cvs.ts';
 	import { cachedMatches, forgetResume, readHistory, saveVisit, type HistoryEntry, type ViewPreferences } from '#lib/resume-history.ts';
 	import { deleteResume, rematchResume, retryResume, watchResume } from '../../resumes.remote.ts';
 	import type { PageProps } from './$types';
@@ -19,6 +20,8 @@
 	let busy = $state(false);
 	let actionError = $state('');
 	let confirmDelete = $state(false);
+	let tailoring = $state<TailorStates>({});
+	let tailorManager: ReturnType<typeof createTailorManager> | undefined;
 	const result = $derived(watchResume({ id: params.id, nearby: false, category, limit: limits[category] }));
 	const data = $derived(result.current);
 	const previous = $derived(lastView?.results.resume.id === params.id ? lastView : undefined);
@@ -30,6 +33,14 @@
 	const otherCount = $derived(current?.matches.other_total ?? activeCache?.snapshot?.otherTotal);
 	const shown = $derived(current?.matches.items ?? cachedMatches(activeCache, category));
 	const activeTotal = $derived(category === 'good' ? goodCount : otherCount);
+	$effect(() => {
+		const id = params.id;
+		tailoring = {};
+		const manager = createTailorManager(id, (states) => tailoring = states, { resumePath: resolve('/resumes/[id]', { id }) });
+		tailorManager = manager;
+		manager.restore();
+		return () => manager.dispose();
+	});
 
 	function preferences(): ViewPreferences { return { category, categoryChosen, limits: { ...limits } }; }
 	function remember(results?: ResumeResults) {
@@ -128,7 +139,7 @@
 	{#if !data && !current && shown.length}<p class="saved-notice">Saved jobs. {result.error ? 'Check back when you’re online.' : 'Checking for updates…'}</p>{/if}
 	{#if current?.matches.results_are_previous}<p class="saved-notice">Here are your saved jobs while we look for new matches.</p>{/if}
 	{#if shown.length}
-		<MatchList matches={shown} />
+		<MatchList matches={shown} {tailoring} onTailor={(jobKey) => void tailorManager?.request(jobKey)} />
 		{#if current?.matches.has_more || (activeTotal !== undefined && shown.length < activeTotal && data)}
 			<button class="load-more" disabled={result.loading} onclick={loadMore}>{result.loading ? 'Loading…' : 'Show more jobs'}</button>
 		{/if}

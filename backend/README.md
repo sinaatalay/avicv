@@ -71,7 +71,7 @@ The frontend saves recent result links, filters, pagination preferences, and bou
 | `POST` | `/resumes`                      | Upload a résumé PDF (form field `file`); returns its `id`        |
 | `GET`  | `/resumes/{id}`                 | Status, progress, the parsed CV and its RenderCV YAML            |
 | `GET`  | `/resumes/{id}/matches`         | Scored roles, best first (`limit`, default 100); fills in while scoring |
-| `GET`  | `/resumes/{id}/match-results`   | Counts and results; server-side `nearby`/`include_closed` filters, `limit` ≤ 500, `offset` |
+| `GET`  | `/resumes/{id}/match-results`   | Counts and results; `category=all\|good\|other`, `nearby`/`include_closed`, `limit` ≤ 500, `offset` |
 | `POST` | `/resumes/{id}/retry`           | Resume failed processing or retry failed role scores             |
 | `POST` | `/resumes/{id}/rematch`         | Refresh against the catalog; optional JSON `location` override   |
 | `DELETE` | `/resumes/{id}`               | Delete uploaded PDF, parsed CV, queue entry, and saved scores     |
@@ -79,6 +79,8 @@ The frontend saves recent result links, filters, pagination preferences, and bou
 | `GET`  | `/jobs`                         | Search open postings (`q`, `geo`, `limit`)                       |
 | `GET`  | `/jobs/stats`                   | Open postings by provider and region, and the last sync          |
 | `GET`  | `/health`                       | Liveness check: `{"status": "ok"}`                               |
+
+Good matches have a composite score strictly above `0.80`; other jobs have a score at or below it. `good_total` and `other_total` describe the full available, location-filtered set before category pagination. Jobs within each category remain ordered by descending match score. The UI uses the categories and application links without exposing score percentages or processing diagnostics.
 
 ## Checks
 

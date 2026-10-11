@@ -2,6 +2,7 @@ import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from threading import Barrier
 from typing import Any
@@ -503,3 +504,118 @@ def next_claim(settings: Settings) -> queue.Claim:
     claim = queue.claim_next(settings)
     assert claim is not None
     return claim
+
+
+def test_match_categories_use_strict_threshold_and_preserve_legacy_list(
+    settings: Settings,
+) -> None:
+    seed_resume(settings, queued=False)
+    conn = connect_app(settings.app_db)
+    for index, value in enumerate([0.8000001, 0.8, 0.7999999], start=1):
+        job = role(index)
+        pipeline.save_score(conn, "resume", 0, 0, job, replace(score(job), score=value))
+    conn.commit()
+    conn.close()
+    client = TestClient(app)
+    good = client.get("/resumes/resume/match-results?category=good").json()
+    other = client.get("/resumes/resume/match-results?category=other").json()
+    all_results = client.get("/resumes/resume/match-results").json()
+    assert good["good_total"] == other["good_total"] == all_results["good_total"] == 1
+    assert (
+        good["other_total"] == other["other_total"] == all_results["other_total"] == 2
+    )
+    assert [item["job_id"] for item in good["items"]] == [1]
+    assert [item["job_id"] for item in other["items"]] == [2, 3]
+    assert good["total"] == 1 and other["total"] == 2 and all_results["total"] == 3
+    assert len(client.get("/resumes/resume/matches").json()) == 3
+    assert [
+        item["job_id"]
+        for item in client.get("/resumes/resume/matches?category=good").json()
+    ] == [1]
+    assert (
+        client.get("/resumes/resume/match-results?category=invalid").status_code == 422
+    )
+
+
+def test_category_filter_and_counts_cover_results_beyond_first_page(
+    settings: Settings,
+) -> None:
+    seed_resume(settings, queued=False)
+    conn = connect_app(settings.app_db)
+    for index in range(1, 151):
+        job = role(index)
+        value = 0.9 if index <= 120 else 0.4
+        pipeline.save_score(conn, "resume", 0, 0, job, replace(score(job), score=value))
+    conn.commit()
+    conn.close()
+    client = TestClient(app)
+    other = client.get("/resumes/resume/match-results?category=other").json()
+    assert other["good_total"] == 120 and other["other_total"] == other["total"] == 30
+    assert {item["job_id"] for item in other["items"]} == set(range(121, 151))
+    good_page = client.get(
+        "/resumes/resume/match-results?category=good&offset=115&limit=5"
+    ).json()
+    assert good_page["good_total"] == good_page["total"] == 120
+    assert good_page["other_total"] == 30
+    assert len(good_page["items"]) == 5 and good_page["has_more"] is False
+    empty_page = client.get(
+        "/resumes/resume/match-results?category=other&offset=30"
+    ).json()
+    assert empty_page["items"] == [] and empty_page["has_more"] is False
+    assert empty_page["total"] == 30 and empty_page["good_total"] == 120
+
+
+def test_category_counts_respect_location_and_availability_filters(
+    settings: Settings, jobs_db: Path
+) -> None:
+    seed_resume(settings, queued=False)
+    conn = connect_app(settings.app_db)
+    catalog = connect(jobs_db)
+    for index, value, location in [
+        (1, 0.9, 0.9),
+        (2, 0.8, 0.9),
+        (3, 0.95, 0.1),
+        (4, 0.3, 0.9),
+    ]:
+        job = dict(
+            catalog.execute("SELECT * FROM jobs WHERE id = ?", (index,)).fetchone()
+        ) | {"locations": ["Toronto"]}
+        pipeline.save_score(
+            conn,
+            "resume",
+            0,
+            0,
+            job,
+            replace(score(job), score=value, location=location),
+        )
+    conn.commit()
+    conn.close()
+    catalog.execute("UPDATE jobs SET closed_at = '2026-10-12' WHERE id = 4")
+    catalog.commit()
+    catalog.close()
+    client = TestClient(app)
+    nearby = client.get(
+        "/resumes/resume/match-results?nearby=true&category=good"
+    ).json()
+    assert nearby["good_total"] == nearby["other_total"] == nearby["total"] == 1
+    assert nearby["unfiltered_total"] == 3 and nearby["nearby_total"] == 2
+    assert nearby["closed_total"] == 1
+    assert [item["job_id"] for item in nearby["items"]] == [1]
+    including_closed = client.get(
+        "/resumes/resume/match-results?nearby=true&category=other&include_closed=true"
+    ).json()
+    assert including_closed["good_total"] == 1
+    assert including_closed["other_total"] == including_closed["total"] == 2
+    assert (
+        including_closed["good_total"] + including_closed["other_total"]
+        == including_closed["nearby_total"]
+        == 3
+    )
+    assert [item["job_id"] for item in including_closed["items"]] == [2, 4]
+
+
+def test_category_counts_are_zero_for_empty_results(settings: Settings) -> None:
+    seed_resume(settings, queued=False)
+    data = TestClient(app).get("/resumes/resume/match-results?category=good").json()
+    assert data["good_total"] == data["other_total"] == data["total"] == 0
+    assert data["items"] == [] and data["has_more"] is False

@@ -29,6 +29,8 @@ router = APIRouter(prefix="/resumes", tags=["resumes"])
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PAGES = 10
+GOOD_MATCH_THRESHOLD = 0.80
+MatchCategory = Literal["all", "good", "other"]
 
 
 class ResumeCreated(BaseModel):
@@ -117,6 +119,8 @@ class Match(BaseModel):
 class MatchResults(BaseModel):
     items: list[Match]
     total: int
+    good_total: int
+    other_total: int
     unfiltered_total: int
     nearby_total: int | None
     closed_total: int
@@ -229,6 +233,7 @@ def get_match_results(
     offset: Annotated[int, Query(ge=0)] = 0,
     nearby: bool = False,
     include_closed: bool = False,
+    category: MatchCategory = "all",
 ) -> MatchResults:
     conn = connect_app(settings.app_db)
     try:
@@ -280,9 +285,21 @@ def get_match_results(
             else None
         )
         filtered = visible + (" AND m.location >= 0.5" if nearby and known else "")
-        total = (
-            nearby_total if nearby and nearby_total is not None else unfiltered_total
-        )
+        # Category totals describe the entire visible location-filtered set, not
+        # only this page. The exact threshold belongs to Other jobs.
+        category_counts = conn.execute(
+            f"SELECT COUNT(*) AS total, COALESCE(SUM(m.score > ?), 0) AS good_total {filtered}",
+            [GOOD_MATCH_THRESHOLD, *params],
+        ).fetchone()
+        good_total = category_counts["good_total"]
+        other_total = category_counts["total"] - good_total
+        total = category_counts["total"]
+        if category != "all":
+            filtered += (
+                " AND m.score > ?" if category == "good" else " AND m.score <= ?"
+            )
+            params.append(GOOD_MATCH_THRESHOLD)
+            total = good_total if category == "good" else other_total
         rows = conn.execute(
             f"""
             SELECT m.*, {status} AS catalog_status, c.source_status, c.source_verified_at, c.source_stale {filtered}
@@ -295,6 +312,8 @@ def get_match_results(
     return MatchResults(
         items=[match_for_display(row, known) for row in rows],
         total=total,
+        good_total=good_total,
+        other_total=other_total,
         unfiltered_total=unfiltered_total,
         nearby_total=nearby_total,
         closed_total=closed_total,
@@ -317,8 +336,11 @@ def get_matches(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
     nearby: bool = False,
+    category: MatchCategory = "all",
 ) -> list[Match]:
-    return get_match_results(resume_id, settings, limit, offset, nearby).items
+    return get_match_results(
+        resume_id, settings, limit, offset, nearby, category=category
+    ).items
 
 
 @router.post("/{resume_id}/retry", status_code=202)

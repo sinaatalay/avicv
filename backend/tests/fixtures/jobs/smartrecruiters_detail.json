@@ -1,0 +1,168 @@
+{
+ "744000152270144": {
+  "active": true,
+  "applyUrl": "https://jobs.smartrecruiters.com/Experian/744000152270144-client-solutions-analyst-remote?oga=true",
+  "company": {
+   "identifier": "Experian",
+   "name": "Experian"
+  },
+  "compensation": {
+   "currency": "USD",
+   "max": 114198,
+   "min": 65883,
+   "period": "YEARLY"
+  },
+  "customField": [
+   {
+    "fieldId": "COUNTRY",
+    "fieldLabel": "Country/Region",
+    "valueId": "us",
+    "valueLabel": "United States"
+   }
+  ],
+  "defaultJobAd": true,
+  "department": {
+   "id": 2618721,
+   "label": "Customer Service"
+  },
+  "experienceLevel": {
+   "id": "not_applicable",
+   "label": "Not Applicable"
+  },
+  "function": {
+   "id": "information_technology",
+   "label": "Information Technology"
+  },
+  "id": "744000152270144",
+  "industry": {
+   "id": "financial_services",
+   "label": "Financial Services"
+  },
+  "jobAd": {
+   "sections": {
+    "additionalInformation": {
+     "text": "<p><strong>Benefits/Perks:</strong></p><ul><li>Great compensation package and incentive plan</li><li>Core benefits including full medical, dental, vision, and matching 401K</li><li>Fully remote environment</li><li>Flexible time off including volunteer time off, vacation, sick and 12-paid holidays</li></ul>",
+     "title": "Additional Information"
+    },
+    "companyDescription": {
+     "text": "<p>Experian is a global data and technology company, powering opportunities for people and businesses around the world. We operate across a range of markets, from financial services to healthcare, automotive, agribusiness, insurance, and many more. Experian invests in people and new advanced technologies to unlock the power of data. We have an amazing team of 25,200 people in 32 countries.</p>",
+     "title": "Company Description"
+    },
+    "jobDescription": {
+     "text": "<p>As a <strong>Client Solutions Analyst</strong>, you will partner with Client Services, Sales, and Operations to support clients throughout onboarding. You will blend client relationship management, technical fluency, and product expertise. You will report to the Director and Client Services. <strong>You will work remotely in this position, and must be located in the Eastern Time Zone to be available during international business hours.</strong></p><p><strong>You will: </strong></p><ul><li>Guide clients through the onboarding process, ensuring they have the knowledge and resources needed to integrate our products</li><li>Develop expertise in our product offerings</li><li>Use technical knowledge to support implementation and provide ongoing technical assistance</li><li>Be an important client contact through calls, presentations, and high-touch email communication</li><li>Troubleshoot production, data, and processing issues independently while collaborating across teams</li><li>Prioritize and respond to technical support tickets through our ticketing system, ensuring resolution</li></ul>",
+     "title": "Job Description"
+    },
+    "qualifications": {
+     "text": "<ul><li>Bachelor's degree, advanced degree, or relevant technical certification(s)</li><li>5+ years of experience in client support</li><li>Located in Eastern Time zone (EST/ET) and available during international business hours</li><li>Experience working with enterprise-level clients or partners</li><li>Experience leading client presentations</li><li>Preferred: Experience working with API integrations and REST web services</li><li>Preferred: Knowledge of database structures and queries, as well as data transfer methods including SFTP and AWS S3</li></ul>",
+     "title": "Qualifications"
+    }
+   }
+  },
+  "jobAdId": "d84d4ddd-1f8e-4d4a-834d-726d64181233",
+  "jobId": "8bb97919-d090-454d-92e4-062cdc696407",
+  "language": {
+   "code": "en",
+   "label": "English",
+   "labelNative": "English (US)"
+  },
+  "location": {
+   "address": "US",
+   "city": "US",
+   "country": "us",
+   "fullLocation": "US, US, United States",
+   "hybrid": false,
+   "region": "US",
+   "remote": true
+  },
+  "name": "Client Solutions Analyst - Remote",
+  "postingUrl": "https://jobs.smartrecruiters.com/Experian/744000152270144-client-solutions-analyst-remote",
+  "refNumber": "REF32894G",
+  "releasedDate": "2026-09-28T20:42:11.437Z",
+  "typeOfEmployment": {
+   "id": "permanent",
+   "label": "Full-time"
+  },
+  "uuid": "a9eda402-2e86-4dd1-8236-9ab4925d68a9",
+  "visibility": "PUBLIC"
+ },
+ "744000154114946": {
+  "active": true,
+  "applyUrl": "https://jobs.smartrecruiters.com/Experian/744000154114946-principal-solutions-architect?oga=true",
+  "company": {
+   "identifier": "Experian",
+   "name": "Experian"
+  },
+  "customField": [
+   {
+    "fieldId": "COUNTRY",
+    "fieldLabel": "Country/Region",
+    "valueId": "us",
+    "valueLabel": "United States"
+   }
+  ],
+  "defaultJobAd": true,
+  "department": {
+   "id": 13221468,
+   "label": "Technology"
+  },
+  "experienceLevel": {
+   "id": "not_applicable",
+   "label": "Not Applicable"
+  },
+  "function": {
+   "id": "engineering",
+   "label": "Engineering"
+  },
+  "id": "744000154114946",
+  "industry": {
+   "id": "financial_services",
+   "label": "Financial Services"
+  },
+  "jobAd": {
+   "sections": {
+    "additionalInformation": {
+     "text": "<p>Our uniqueness is that we celebrate yours. Experian's people first, inclusive and purpose driven culture is multi award-winning; World's Best Workplaces™ 2025 (Fortune Global Top 25), Great Place To Work™ in 26 countries to name a few. Check out Experian Life on social or explore our Careers Site to understand why. Experian is also proud to be an Equal Opportunity and Affirmative Action employer. If you have a disability or special need that requires accommodation, please let us know at the earliest opportunity.</p>",
+     "title": "Additional Information"
+    },
+    "companyDescription": {
+     "text": "<p>Experian is a global data and technology company, powering opportunities for people and businesses around the world. We operate across a range of markets, from financial services to healthcare, automotive, agribusiness, insurance, and many more. Experian invests in people and new advanced technologies to unlock the power of data. We have an amazing team of 25,200 people in 32 countries.&#xa0;</p>",
+     "title": "Company Description"
+    },
+    "jobDescription": {
+     "text": "<p>At Experian, we believe great work happens when people come together. We're focused on attracting talent in and around our designated hub locations who are open to collaborating with colleagues in person. Aligning employees to these talent markets helps foster collaboration, strengthen team connections, and support long-term career growth within Experian. You will report to the Head of Technology, and reside in or near one of our collaboration hubs:</p><p>Costa Mesa, CA; San Jose, CA; Allen, TX; Austin, TX; Franklin, TN; New York, NY; Schaumberg, IL; Washington, D.C.; Atlanta, GA; Boston, MA; Seattle, WA</p><p>As a Principal Solutions Architect, you'll be a senior technical leader who designs large-scale data platforms. You'll partner with engineering, product, and business teams to set technical direction for complex, high-volume data systems.</p><p><strong>You'll have opportunity to:</strong></p><ul><li><p>Define end-to-end architecture for large-scale data platforms and distributed systems</p></li><li><p>Develop automated, custom data pipelines using Apache Spark, Trino, or similar Big Data technologies</p></li><li><p>Establish architecture best practices for data ingestion, transformation, storage, and usage</p></li><li><p>Improve performance, scalability, resiliency, and cost efficiency across data platforms</p></li><li><p>Partner with Product, Engineering, Security, Cloud, and Architecture teams to modernize legacy workflows and translate our needs into technical solutions</p></li><li><p>Lead architecture reviews, resolve cross-team technical decisions, and define practices for data governance, security, and observability</p></li><li><p>Mentor architects and engineers, and communicate technical strategy and risk to senior leadership</p></li></ul>",
+     "title": "Job Description"
+    },
+    "qualifications": {
+     "text": "<ul><li><p>Bachelor's in Computer Science, Data Engineering, or related field, or equivalent experience (Master's preferred)</p></li><li><p>8+ years of experience in software engineering, data engineering, or technology architecture</p></li><li><p>5+ years of hands-on experience with Big Data technologies and large-scale distributed data processing</p></li><li><p>Experience designing and building automated, custom data pipelines using Apache Spark, Trino, or similar frameworks</p></li><li><p>Experience architecting enterprise-scale data platforms and distributed systems</p></li><li><p>Experience designing solutions in cloud environments and with expertise in Python, Java, Scala, or SQL</p></li><li><p>Experience with data lakes, data warehouses, object storage, and distributed query engines</p></li><li><p>Reside in, or near the designated Collaboration Hub(s) for this role.</p></li></ul>",
+     "title": "Qualifications"
+    }
+   }
+  },
+  "jobAdId": "7687dff5-e07d-432c-aaf7-3711981ae290",
+  "jobId": "2588916f-03fd-4ff5-ab13-247bb0844736",
+  "language": {
+   "code": "en",
+   "label": "English",
+   "labelNative": "English (US)"
+  },
+  "location": {
+   "address": "united states",
+   "city": "united states",
+   "country": "us",
+   "fullLocation": "united states, UNITED STATES, United States",
+   "hybrid": true,
+   "region": "UNITED STATES",
+   "remote": false
+  },
+  "name": "Principal Solutions Architect",
+  "postingUrl": "https://jobs.smartrecruiters.com/Experian/744000154114946-principal-solutions-architect",
+  "refNumber": "REF32898G",
+  "releasedDate": "2026-10-07T14:10:54.724Z",
+  "typeOfEmployment": {
+   "id": "permanent",
+   "label": "Full-time"
+  },
+  "uuid": "fa948170-547d-432d-93c4-53b98a793747",
+  "visibility": "PUBLIC"
+ }
+}

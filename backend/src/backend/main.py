@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from .config import get_settings
 from .db import connect_app
+from .jobs import router as jobs
 from .resumes import router as resumes
 
 
@@ -17,6 +18,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 app = FastAPI(title="speedhack API", lifespan=lifespan)
 
 app.include_router(resumes.router)
+app.include_router(jobs.router)
 
 
 @app.get("/health")

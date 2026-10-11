@@ -4,9 +4,11 @@
 	"type": "module",
 	"workspaces": ["frontend"],
 	"scripts": {
-		"dev": "bun run --parallel dev:frontend dev:backend",
+		"dev": "bun run --parallel dev:frontend dev:backend dev:jobs",
 		"dev:frontend": "bun --cwd=frontend run dev",
 		"dev:backend": "uv run --directory backend fastapi dev",
+		"dev:jobs": "uv run --directory backend jobs-ingest --loop",
+		"jobs:sync": "uv run --directory backend jobs-ingest --force",
 		"build": "bun --cwd=frontend run build",
 		"check": "bun run --sequential check:frontend check:backend",
 		"check:frontend": "bun --cwd=frontend run check",

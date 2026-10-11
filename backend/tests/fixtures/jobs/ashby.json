@@ -1,0 +1,384 @@
+{
+ "jobs": [
+  {
+   "address": {
+    "postalAddress": {
+     "addressCountry": "United States",
+     "addressLocality": "",
+     "addressRegion": ""
+    }
+   },
+   "applyUrl": "https://jobs.ashbyhq.com/ashby/7d8ec4fe-50aa-4d7e-9eec-db7b2d14bcbd/application",
+   "compensation": {
+    "compensationTierSummary": "$210,000 – $280,313 • Offers Equity • Offers Commission • Multiple Ranges",
+    "compensationTiers": [
+     {
+      "additionalInformation": "75/25 Split",
+      "components": [
+       {
+        "compensationType": "Salary",
+        "currencyCode": "USD",
+        "id": "b11c218d-006b-4ab0-bb68-6d6ffbf2a380",
+        "interval": "1 YEAR",
+        "maxValue": 280313,
+        "minValue": 241500,
+        "summary": "On Target Earnings $241,500 – $280,313"
+       },
+       {
+        "compensationType": "Commission",
+        "currencyCode": "USD",
+        "id": "94440cde-3ed8-4e1a-9e5e-74e5756cef15",
+        "interval": "1 YEAR",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Commission"
+       },
+       {
+        "compensationType": "EquityPercentage",
+        "currencyCode": null,
+        "id": "3becbc1c-88fc-46e8-90fd-880ef392cf76",
+        "interval": "NONE",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Equity"
+       }
+      ],
+      "id": "332019b3-1c91-4375-b69c-5bbc4cccd824",
+      "tierSummary": "On Target Earnings $241,500 – $280,313 • Offers Equity • Offers Commission • 75/25 Split",
+      "title": "US Tier 1 - SF & NYC Metros"
+     },
+     {
+      "additionalInformation": "75/25 Split",
+      "components": [
+       {
+        "compensationType": "EquityPercentage",
+        "currencyCode": null,
+        "id": "e38cc680-be0a-427d-a0ae-e52e52a5600d",
+        "interval": "NONE",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Equity"
+       },
+       {
+        "compensationType": "Commission",
+        "currencyCode": "USD",
+        "id": "95d08e93-cf6a-4336-ac47-ac2df331405c",
+        "interval": "1 YEAR",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Commission"
+       },
+       {
+        "compensationType": "Salary",
+        "currencyCode": "USD",
+        "id": "36c8527c-af96-4534-a900-3baa1e2bf92b",
+        "interval": "1 YEAR",
+        "maxValue": 243750,
+        "minValue": 210000,
+        "summary": "On Target Earnings $210,000 – $243,750"
+       }
+      ],
+      "id": "063601c6-9f27-4ede-8db0-e4b789fae42f",
+      "tierSummary": "On Target Earnings $210,000 – $243,750 • Offers Equity • Offers Commission • 75/25 Split",
+      "title": "US Tier 2"
+     },
+     {
+      "additionalInformation": "75/25 Split",
+      "components": [
+       {
+        "compensationType": "Salary",
+        "currencyCode": "USD",
+        "id": "82d1bcb5-fee3-4fd0-bf41-26086d950987",
+        "interval": "1 YEAR",
+        "maxValue": 268125,
+        "minValue": 231000,
+        "summary": "On Target Earnings $231,000 – $268,125"
+       },
+       {
+        "compensationType": "Commission",
+        "currencyCode": "USD",
+        "id": "521cf87f-871a-4005-9db1-8dc48547a976",
+        "interval": "1 YEAR",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Commission"
+       },
+       {
+        "compensationType": "EquityPercentage",
+        "currencyCode": null,
+        "id": "70b4dff9-29da-465f-a390-20807671e7e8",
+        "interval": "NONE",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Equity"
+       }
+      ],
+      "id": "ceca6bb5-7a97-40ac-bf06-0a6279f0e920",
+      "tierSummary": "On Target Earnings $231,000 – $268,125 • Offers Equity • Offers Commission • 75/25 Split",
+      "title": "Canada"
+     }
+    ],
+    "scrapeableCompensationSalarySummary": "$210,000 - $280,313",
+    "summaryComponents": [
+     {
+      "compensationType": "Salary",
+      "currencyCode": "USD",
+      "interval": "1 YEAR",
+      "maxValue": 280313,
+      "minValue": 210000
+     },
+     {
+      "compensationType": "Commission",
+      "interval": "1 YEAR",
+      "maxValue": null,
+      "minValue": null
+     },
+     {
+      "compensationType": "EquityPercentage",
+      "interval": "1 YEAR",
+      "maxValue": null,
+      "minValue": null
+     }
+    ]
+   },
+   "department": "Sales",
+   "descriptionHtml": "<p style=\"min-height:1.5em\">As the Mid-Market Solutions Engineering Manager at Ashby, you’ll lead and grow a high-performing team of Solutions Engineers who sit at the center of our sales motion. Your team partners closely with Account Executives to secure both the technical and commercial win—showing prospects how Ashby can fundamentally transform the way they hire.</p><p style=\"min-height:1.5em\">You’ll be responsible for shaping the next generation of SEs at Ashby: hiring exceptional talent, coaching them toward mastery, operationalizing excellence, and building scalable processes that help the team—and the business—win more often and more efficiently.</p><p style=\"min-height:1.5em\">This is a highly strategic role with direct impact on revenue, product innovation, and customer value.</p><p style=\"min-height:1.5em\"></p><h2><strong>Why Lead SE at Ashby?</strong></h2><p style=\"min-height:1.5em\"></p><h3><strong>Product-Market Fit That Makes Your Team’s Job Easier</strong></h3><p style=\"min-height:1.5em\">Your team will support a product that prospects genuinely love—and often ask to buy before the demo ends. This creates a coaching environment focused on excellence, not convincing.</p><p style=\"min-height:1.5em\"></p><h3><strong>Impact on a Market That’s Ripe for Transformation</strong></h3><p style=\"min-height:1.5em\">Talent teams have been historically underserved. Your team will help prospects reimagine what a modern hiring platform can do—and you’ll have a front-row seat to shaping the next wave of innovation in TA tech.</p><p style=\"min-height:1.5em\"></p><h3><strong>A Leadership Role Designed for Builders</strong></h3><p style=\"min-height:1.5em\">You’ll shape not just how Ashby sells, but how Ashby scales. The initiatives you lead will define how the SE team operates for years to come.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You’ll Do</strong></h2><p style=\"min-height:1.5em\"></p><h3><strong>Lead &amp; Grow a High-Performing SE Team</strong></h3><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Hire, onboard, and develop world-class Solutions Engineers who become trusted advisors to mid-market prospects.</p></li><li><p style=\"min-height:1.5em\">Coach SEs on discovery, storytelling, demo excellence, product knowledge, competitive positioning, and commercial partnership with AEs.</p></li><li><p style=\"min-height:1.5em\">Create a culture of ownership, collaboration, and continuous improvement.</p></li></ul>",
+   "descriptionPlain": "As the Mid-Market Solutions Engineering Manager at Ashby, you’ll lead and grow a high-performing team of Solutions Engineers who sit at the center of our sales motion. Your team partners closely with Account Executives to secure both the technical and commercial win—showing prospects how Ashby can fundamentally transform the way they hire.\n\nYou’ll be responsible for shaping the next generation of ...",
+   "employmentType": "FullTime",
+   "id": "7d8ec4fe-50aa-4d7e-9eec-db7b2d14bcbd",
+   "isListed": true,
+   "isRemote": true,
+   "jobUrl": "https://jobs.ashbyhq.com/ashby/7d8ec4fe-50aa-4d7e-9eec-db7b2d14bcbd",
+   "location": "Remote - US",
+   "publishedAt": "2026-08-03T23:05:52.543+00:00",
+   "secondaryLocations": [
+    {
+     "address": {
+      "postalAddress": {
+       "addressCountry": "Canada",
+       "addressLocality": "",
+       "addressRegion": ""
+      }
+     },
+     "location": "Remote - Canada"
+    }
+   ],
+   "shouldDisplayCompensationOnJobPostings": true,
+   "team": "Solutions Engineering",
+   "title": "Mid-Market Solutions Engineering Manager",
+   "workplaceType": "Remote"
+  },
+  {
+   "address": {
+    "postalAddress": {
+     "addressCountry": "Canada",
+     "addressLocality": "Calgary",
+     "addressRegion": "Alberta",
+     "streetAddress": "611 Meredith Rd NE"
+    }
+   },
+   "applyUrl": "https://jobs.ashbyhq.com/benevity/0f2220ad-e889-426c-b71a-71b687d0d087/application",
+   "compensation": {
+    "compensationTierSummary": null,
+    "compensationTiers": [],
+    "scrapeableCompensationSalarySummary": null,
+    "summaryComponents": []
+   },
+   "department": "Technology",
+   "descriptionHtml": "<h2><strong>Meet Benevity</strong></h2><p style=\"min-height:1.5em\">Benevity is the way the world does good, providing companies (and their employees) with technology to take social action on the issues they care about. Through giving, volunteering, grantmaking, employee resource groups and micro-actions, we help most of the Fortune 100 brands build better cultures and use their power for good. We’re also one of the first B Corporations in Canada, meaning we’re as committed to purpose as we are to profits. We have people working all over the world, including Canada, Spain, Switzerland, the United Kingdom, the United States and more!</p><p style=\"min-height:1.5em\"></p><p style=\"min-height:1.5em\"><strong>High Level Role Overview</strong></p>",
+   "descriptionPlain": "MEET BENEVITY\n\nBenevity is the way the world does good, providing companies (and their employees) with technology to take social action on the issues they care about. Through giving, volunteering, grantmaking, employee resource groups and micro-actions, we help most of the Fortune 100 brands build better cultures and use their power for good. We’re also one of the first B Corporations in Canada, ...",
+   "employmentType": "FullTime",
+   "id": "0f2220ad-e889-426c-b71a-71b687d0d087",
+   "isListed": true,
+   "isRemote": true,
+   "jobUrl": "https://jobs.ashbyhq.com/benevity/0f2220ad-e889-426c-b71a-71b687d0d087",
+   "location": "Calgary, Alberta",
+   "publishedAt": "2026-10-09T18:42:03.488+00:00",
+   "secondaryLocations": [
+    {
+     "address": {
+      "postalAddress": {
+       "addressCountry": "Canada",
+       "addressLocality": "Vancouver",
+       "addressRegion": "British Columbia"
+      }
+     },
+     "location": "Vancouver, British Columbia"
+    }
+   ],
+   "shouldDisplayCompensationOnJobPostings": false,
+   "team": "Engineering",
+   "title": "Senior Staff Developer",
+   "workplaceType": "Hybrid"
+  },
+  {
+   "address": {
+    "postalAddress": {
+     "addressCountry": "United States",
+     "addressLocality": "",
+     "addressRegion": ""
+    }
+   },
+   "applyUrl": "https://jobs.ashbyhq.com/acme/00000000-0000-4000-8000-000000000001/application",
+   "compensation": {
+    "compensationTierSummary": "$210,000 – $280,313 • Offers Equity • Offers Commission • Multiple Ranges",
+    "compensationTiers": [
+     {
+      "additionalInformation": "75/25 Split",
+      "components": [
+       {
+        "compensationType": "Salary",
+        "currencyCode": "USD",
+        "id": "b11c218d-006b-4ab0-bb68-6d6ffbf2a380",
+        "interval": "1 YEAR",
+        "maxValue": 280313,
+        "minValue": 241500,
+        "summary": "On Target Earnings $241,500 – $280,313"
+       },
+       {
+        "compensationType": "Commission",
+        "currencyCode": "USD",
+        "id": "94440cde-3ed8-4e1a-9e5e-74e5756cef15",
+        "interval": "1 YEAR",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Commission"
+       },
+       {
+        "compensationType": "EquityPercentage",
+        "currencyCode": null,
+        "id": "3becbc1c-88fc-46e8-90fd-880ef392cf76",
+        "interval": "NONE",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Equity"
+       }
+      ],
+      "id": "332019b3-1c91-4375-b69c-5bbc4cccd824",
+      "tierSummary": "On Target Earnings $241,500 – $280,313 • Offers Equity • Offers Commission • 75/25 Split",
+      "title": "US Tier 1 - SF & NYC Metros"
+     },
+     {
+      "additionalInformation": "75/25 Split",
+      "components": [
+       {
+        "compensationType": "EquityPercentage",
+        "currencyCode": null,
+        "id": "e38cc680-be0a-427d-a0ae-e52e52a5600d",
+        "interval": "NONE",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Equity"
+       },
+       {
+        "compensationType": "Commission",
+        "currencyCode": "USD",
+        "id": "95d08e93-cf6a-4336-ac47-ac2df331405c",
+        "interval": "1 YEAR",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Commission"
+       },
+       {
+        "compensationType": "Salary",
+        "currencyCode": "USD",
+        "id": "36c8527c-af96-4534-a900-3baa1e2bf92b",
+        "interval": "1 YEAR",
+        "maxValue": 243750,
+        "minValue": 210000,
+        "summary": "On Target Earnings $210,000 – $243,750"
+       }
+      ],
+      "id": "063601c6-9f27-4ede-8db0-e4b789fae42f",
+      "tierSummary": "On Target Earnings $210,000 – $243,750 • Offers Equity • Offers Commission • 75/25 Split",
+      "title": "US Tier 2"
+     },
+     {
+      "additionalInformation": "75/25 Split",
+      "components": [
+       {
+        "compensationType": "Salary",
+        "currencyCode": "USD",
+        "id": "82d1bcb5-fee3-4fd0-bf41-26086d950987",
+        "interval": "1 YEAR",
+        "maxValue": 268125,
+        "minValue": 231000,
+        "summary": "On Target Earnings $231,000 – $268,125"
+       },
+       {
+        "compensationType": "Commission",
+        "currencyCode": "USD",
+        "id": "521cf87f-871a-4005-9db1-8dc48547a976",
+        "interval": "1 YEAR",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Commission"
+       },
+       {
+        "compensationType": "EquityPercentage",
+        "currencyCode": null,
+        "id": "70b4dff9-29da-465f-a390-20807671e7e8",
+        "interval": "NONE",
+        "maxValue": null,
+        "minValue": null,
+        "summary": "Offers Equity"
+       }
+      ],
+      "id": "ceca6bb5-7a97-40ac-bf06-0a6279f0e920",
+      "tierSummary": "On Target Earnings $231,000 – $268,125 • Offers Equity • Offers Commission • 75/25 Split",
+      "title": "Canada"
+     }
+    ],
+    "scrapeableCompensationSalarySummary": "$210,000 - $280,313",
+    "summaryComponents": [
+     {
+      "compensationType": "Salary",
+      "currencyCode": "USD",
+      "interval": "1 YEAR",
+      "maxValue": 280313,
+      "minValue": 210000
+     },
+     {
+      "compensationType": "Commission",
+      "interval": "1 YEAR",
+      "maxValue": null,
+      "minValue": null
+     },
+     {
+      "compensationType": "EquityPercentage",
+      "interval": "1 YEAR",
+      "maxValue": null,
+      "minValue": null
+     }
+    ]
+   },
+   "department": "Sales",
+   "descriptionHtml": "<p style=\"min-height:1.5em\">As the Mid-Market Solutions Engineering Manager at Ashby, you’ll lead and grow a high-performing team of Solutions Engineers who sit at the center of our sales motion. Your team partners closely with Account Executives to secure both the technical and commercial win—showing prospects how Ashby can fundamentally transform the way they hire.</p><p style=\"min-height:1.5em\">You’ll be responsible for shaping the next generation of SEs at Ashby: hiring exceptional talent, coaching them toward mastery, operationalizing excellence, and building scalable processes that help the team—and the business—win more often and more efficiently.</p><p style=\"min-height:1.5em\">This is a highly strategic role with direct impact on revenue, product innovation, and customer value.</p><p style=\"min-height:1.5em\"></p><h2><strong>Why Lead SE at Ashby?</strong></h2><p style=\"min-height:1.5em\"></p><h3><strong>Product-Market Fit That Makes Your Team’s Job Easier</strong></h3><p style=\"min-height:1.5em\">Your team will support a product that prospects genuinely love—and often ask to buy before the demo ends. This creates a coaching environment focused on excellence, not convincing.</p><p style=\"min-height:1.5em\"></p><h3><strong>Impact on a Market That’s Ripe for Transformation</strong></h3><p style=\"min-height:1.5em\">Talent teams have been historically underserved. Your team will help prospects reimagine what a modern hiring platform can do—and you’ll have a front-row seat to shaping the next wave of innovation in TA tech.</p><p style=\"min-height:1.5em\"></p><h3><strong>A Leadership Role Designed for Builders</strong></h3><p style=\"min-height:1.5em\">You’ll shape not just how Ashby sells, but how Ashby scales. The initiatives you lead will define how the SE team operates for years to come.</p><p style=\"min-height:1.5em\"></p><h2><strong>What You’ll Do</strong></h2><p style=\"min-height:1.5em\"></p><h3><strong>Lead &amp; Grow a High-Performing SE Team</strong></h3><ul style=\"min-height:1.5em\"><li><p style=\"min-height:1.5em\">Hire, onboard, and develop world-class Solutions Engineers who become trusted advisors to mid-market prospects.</p></li><li><p style=\"min-height:1.5em\">Coach SEs on discovery, storytelling, demo excellence, product knowledge, competitive positioning, and commercial partnership with AEs.</p></li><li><p style=\"min-height:1.5em\">Create a culture of ownership, collaboration, and continuous improvement.</p></li></ul>",
+   "descriptionPlain": "As the Mid-Market Solutions Engineering Manager at Ashby, you’ll lead and grow a high-performing team of Solutions Engineers who sit at the center of our sales motion. Your team partners closely with Account Executives to secure both the technical and commercial win—showing prospects how Ashby can fundamentally transform the way they hire.\n\nYou’ll be responsible for shaping the next generation of ...",
+   "employmentType": "FullTime",
+   "id": "00000000-0000-4000-8000-000000000001",
+   "isListed": false,
+   "isRemote": true,
+   "jobUrl": "https://jobs.ashbyhq.com/acme/00000000-0000-4000-8000-000000000001",
+   "location": "Remote - US",
+   "publishedAt": "2026-08-03T23:05:52.543+00:00",
+   "secondaryLocations": [
+    {
+     "address": {
+      "postalAddress": {
+       "addressCountry": "Canada",
+       "addressLocality": "",
+       "addressRegion": ""
+      }
+     },
+     "location": "Remote - Canada"
+    }
+   ],
+   "shouldDisplayCompensationOnJobPostings": true,
+   "team": "Solutions Engineering",
+   "title": "Unlisted Posting (synthetic)",
+   "workplaceType": "Remote"
+  }
+ ],
+ "apiVersion": "1"
+}

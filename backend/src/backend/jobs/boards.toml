@@ -1,0 +1,498 @@
+# Employer job boards pulled by `jobs-ingest`. Each one was verified live on 2026-10-11:
+# HTTP 200, at least one listed job, and postings that name the employer.
+#
+#   provider  greenhouse | ashby | lever | smartrecruiters
+#   id        the board token / company id from the careers page URL (case matters):
+#             job-boards.greenhouse.io/{id}, jobs.ashbyhq.com/{id}, jobs.lever.co/{id},
+#             jobs.smartrecruiters.com/{id}
+#   countries (SmartRecruiters) server-side filter; each posting costs a detail request
+#
+# Board ids go stale when employers switch ATS: a dead board shows up as `failed` (404)
+# or `suspect` (suddenly empty) in ingest_board_runs. SmartRecruiters answers 200 with
+# no postings for an unknown id, so check those against the careers page.
+
+[[board]]
+provider = "greenhouse"
+id = "stripe"
+company = "Stripe"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "cloudflare"
+company = "Cloudflare"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "airbnb"
+company = "Airbnb"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "figma"
+company = "Figma"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "discord"
+company = "Discord"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "dropbox"
+company = "Dropbox"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "reddit"
+company = "Reddit"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "pinterest"
+company = "Pinterest"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "lyft"
+company = "Lyft"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "coinbase"
+company = "Coinbase"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "robinhood"
+company = "Robinhood"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "datadog"
+company = "Datadog"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "mongodb"
+company = "MongoDB"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "gitlab"
+company = "GitLab"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "twilio"
+company = "Twilio"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "databricks"
+company = "Databricks"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "instacart"
+company = "Instacart"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "asana"
+company = "Asana"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "elastic"
+company = "Elastic"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "okta"
+company = "Okta"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "samsara"
+company = "Samsara"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "brex"
+company = "Brex"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "affirm"
+company = "Affirm"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "vercel"
+company = "Vercel"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "anthropic"
+company = "Anthropic"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "scaleai"
+company = "Scale AI"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "faire"
+company = "Faire"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "waymo"
+company = "Waymo"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "andurilindustries"
+company = "Anduril"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "grafanalabs"
+company = "Grafana Labs"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "gleanwork"
+company = "Glean"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "sentry"
+company = "Sentry"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "docker"
+company = "Docker"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "confluent"
+company = "Confluent"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "snowflake"
+company = "Snowflake"
+hq = "US"
+
+[[board]]
+provider = "greenhouse"
+id = "doordashusa"
+company = "DoorDash"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "ashby"
+company = "Ashby"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "notion"
+company = "Notion"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "linear"
+company = "Linear"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "ramp"
+company = "Ramp"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "openai"
+company = "OpenAI"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "cohere"
+company = "Cohere"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "replit"
+company = "Replit"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "vanta"
+company = "Vanta"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "supabase"
+company = "Supabase"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "posthog"
+company = "PostHog"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "elevenlabs"
+company = "ElevenLabs"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "perplexity"
+company = "Perplexity"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "cursor"
+company = "Cursor (Anysphere)"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "zapier"
+company = "Zapier"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "hex"
+company = "Hex"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "modal"
+company = "Modal"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "plaid"
+company = "Plaid"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "wealthsimple"
+company = "Wealthsimple"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "1password"
+company = "1Password"
+hq = "CA"
+
+[[board]]
+provider = "greenhouse"
+id = "tailscale"
+company = "Tailscale"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "float"
+company = "Float"
+hq = "CA"
+
+[[board]]
+provider = "lever"
+id = "policyme"
+company = "PolicyMe"
+hq = "CA"
+
+[[board]]
+provider = "lever"
+id = "bluecatnetworks"
+company = "BlueCat"
+hq = "CA"
+
+[[board]]
+provider = "lever"
+id = "veeva"
+company = "Veeva Systems"
+hq = "US"
+
+[[board]]
+provider = "lever"
+id = "palantir"
+company = "Palantir"
+hq = "US"
+
+[[board]]
+provider = "lever"
+id = "spotify"
+company = "Spotify"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "neofinancial"
+company = "Neo Financial"
+hq = "CA"
+
+[[board]]
+provider = "lever"
+id = "zoox"
+company = "Zoox"
+hq = "US"
+
+[[board]]
+provider = "lever"
+id = "shieldai"
+company = "Shield AI"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "whoop"
+company = "WHOOP"
+hq = "US"
+
+[[board]]
+provider = "ashby"
+id = "koho"
+company = "KOHO"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "jobber"
+company = "Jobber"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "procurify"
+company = "Procurify"
+hq = "CA"
+
+[[board]]
+provider = "greenhouse"
+id = "hootsuite"
+company = "Hootsuite"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "hopper"
+company = "Hopper"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "thinkific"
+company = "Thinkific"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "benevity"
+company = "Benevity"
+hq = "CA"
+
+[[board]]
+provider = "ashby"
+id = "clearco"
+company = "Clearco"
+hq = "CA"
+
+[[board]]
+provider = "smartrecruiters"
+id = "ServiceNow"
+company = "ServiceNow"
+hq = "US"
+countries = ["us", "ca"]
+
+[[board]]
+provider = "smartrecruiters"
+id = "ubisoft2"
+company = "Ubisoft"
+hq = "CA"
+countries = ["us", "ca"]
+
+[[board]]
+provider = "smartrecruiters"
+id = "BoschGroup"
+company = "Bosch"
+hq = "DE"
+countries = ["us", "ca"]
+
+[[board]]
+provider = "smartrecruiters"
+id = "WesternDigital"
+company = "Western Digital"
+hq = "US"
+countries = ["us", "ca"]
+
+[[board]]
+provider = "smartrecruiters"
+id = "Freshworks"
+company = "Freshworks"
+hq = "US"
+countries = ["us", "ca"]
+
+[[board]]
+provider = "smartrecruiters"
+id = "Experian"
+company = "Experian"
+hq = "US"
+countries = ["us", "ca"]

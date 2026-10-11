@@ -1,0 +1,130 @@
+{
+ "comments": "",
+ "updatedAt": 1791740471,
+ "offset": 0,
+ "limit": 20,
+ "totalCount": 2,
+ "jobs": [
+  {
+   "applicationLink": "https://himalayas.app/companies/heard-dev/jobs/founding-engineer",
+   "categories": [
+    "Founding-Engineer",
+    "Technical-Founding-Engineer",
+    "Founding-Product-Engineer",
+    "Founding-Software-Engineer",
+    "Founding-AI-Engineer",
+    "Founding-ML-Engineer",
+    "Founding-Fullstack-Engineer"
+   ],
+   "companyLogo": "https://cdn-images.himalayas.app/oqwe4t60epeu9ozo2oyt7d2nalux",
+   "companyName": "Heard",
+   "companySlug": "heard-dev",
+   "currency": "USD",
+   "description": "<p>Heard (heard.dev) is the voice layer for AI agents. It tells you what Claude Code, Codex and your other agents are doing, out loud, and lets you answer them by voice. We're growing fast, we're funded, and we ship every week. Now we need engineer number one, working directly with the founder.</p><p></p><p>What you’ll build</p><ul class=\"list-disc list-outside leading-3 -mt-2\">\n<li class=\"leading-normal -mb-2\"><p>Agentic systems: agents that observe, decide what matters, and act.</p></li>\n<li class=\"leading-normal -mb-2\"><p>Real AI/ML depth: LLMs, speech, real-time models, evals, the stuff that makes agents actually good.</p></li>\n<li class=\"leading-normal -mb-2\"><p>Architecture for scale, from a few hundred power users to millions of agents talking to their humans.</p></li>\n<li class=\"leading-normal -mb-2\"><p>The product and the company, not just the codebase.</p></li>\n</ul>",
+   "employmentType": "Full Time",
+   "excerpt": "Heard (heard. dev) is the voice layer for AI agents.",
+   "expiryDate": 1793749819,
+   "guid": "https://himalayas.app/companies/heard-dev/jobs/founding-engineer",
+   "locationRestrictions": [
+    "Canada",
+    "United States"
+   ],
+   "maxSalary": 140000,
+   "minSalary": 100000,
+   "parentCategories": [],
+   "pubDate": 1791280190,
+   "salaryPeriod": "annual",
+   "seniority": [
+    "Mid-level",
+    "Senior"
+   ],
+   "timezoneRestrictions": [
+    -11,
+    -10,
+    -9.5,
+    -9,
+    -8,
+    -7,
+    -6,
+    -5,
+    -4,
+    -3.5,
+    -3,
+    -2,
+    -1,
+    0,
+    1,
+    2,
+    3,
+    3.5,
+    4,
+    4.5,
+    5,
+    5.5,
+    5.75,
+    6,
+    6.5,
+    7,
+    8,
+    8.75,
+    9,
+    9.5,
+    10,
+    10.5,
+    11,
+    12,
+    12.75,
+    13,
+    14
+   ],
+   "title": "Founding Engineer"
+  },
+  {
+   "applicationLink": "https://himalayas.app/companies/volume7/jobs/full-stack-developer",
+   "categories": [
+    "Full-Stack-Developer",
+    "Full-Stack-Engineer",
+    "Software-Developer",
+    "Web-Developer",
+    "Backend-Engineer",
+    "Full-Stack-Software-Developer",
+    "Full-Stack-Web-Developer",
+    "Fullstack-Development",
+    "Full-Stack-JavaScript-Developer",
+    "Full-Stack",
+    "Full-Stack-Web-Development"
+   ],
+   "companyLogo": "https://cdn-images.himalayas.app/xrhmw4ycy9zoe68cqtteiws8g8sh",
+   "companyName": "Volume7",
+   "companySlug": "volume7",
+   "currency": "CAD",
+   "description": "<div class=\"description\">\n<h3><strong>The role</strong></h3>\n<p>We're looking for a mid-level Full Stack Developer (2-4 years experience) to join our growing team. You'll collaborate with other developers and designers on challenging client projects, and report directly to our Co-Founder/Technical Director.</p>\n<p>The salary range is<strong> $65k – $85k</strong> based on experience + quarterly profit sharing</p>\n<p><em>This is a remote work opportunity, but we are currently looking for candidates based in Montreal, Canada.</em></p>\n<h3><strong>What you'll do</strong></h3>\n<ul>\n<li>Execute full-stack development for a variety of clients</li>\n<li>Work collaboratively and proactively in a multidisciplinary team environment</li>\n<li>Participate in technical planning sessions to define models and architecture</li>\n<li>Collaborate with project managers and clients on extracting technical specs from feature requirements</li>\n<li>Contribute to our engineering culture</li>\n</ul>",
+   "employmentType": "Full Time",
+   "excerpt": "The roleWe're looking for a mid-level Full Stack Developer (2-4 years experience) to join our growing team.",
+   "expiryDate": 1796317685,
+   "guid": "https://himalayas.app/companies/volume7/jobs/full-stack-developer",
+   "locationRestrictions": [
+    "Canada"
+   ],
+   "maxSalary": 85000,
+   "minSalary": 65000,
+   "parentCategories": [
+    "Developer"
+   ],
+   "pubDate": 1791133685,
+   "salaryPeriod": "annual",
+   "seniority": [
+    "Mid-level"
+   ],
+   "timezoneRestrictions": [
+    -8,
+    -7,
+    -6,
+    -5,
+    -4,
+    -3.5
+   ],
+   "title": "Full Stack Developer"
+  }
+ ]
+}

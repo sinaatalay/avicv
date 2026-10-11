@@ -1,0 +1,17 @@
+# Himalayas searches pulled by `jobs-ingest` (https://himalayas.app/api): remote jobs open
+# to the US or Canada. Search is page-based (20 jobs per page). Himalayas refreshes daily
+# and rate-limits, so a few pages per query are plenty.
+# Terms: show Himalayas as the source and link to its URL; don't resubmit its jobs to
+# other job sites.
+countries = ["US", "CA"]
+pages = 3
+queries = [
+    "software engineer",
+    "backend",
+    "frontend",
+    "full stack",
+    "data engineer",
+    "machine learning",
+    "devops",
+    "python",
+]

@@ -1,6 +1,8 @@
 # speedhack
 
-A SvelteKit frontend and a FastAPI backend in one repository.
+Drop your résumé as a PDF and see which open jobs you'd fit. The backend reads the PDF into a [RenderCV](https://docs.rendercv.com) CV with Gemini, compares it with thousands of open US/Canada roles pulled from employers' public job boards, and ranks them with [Jev](https://docs.typesafe.ai), TypeSafe's decision model. The details are in [backend/README.md](backend/README.md).
+
+A SvelteKit frontend and a FastAPI backend live in one repository.
 
 ```
 speedhack/
@@ -20,20 +22,24 @@ Each toolchain has its own workspace rooted here, so there is one lockfile per l
 You need [Bun](https://bun.com) 1.4+ and [uv](https://docs.astral.sh/uv/). uv downloads Python 3.14 itself if needed.
 
 ```sh
-bun install    # frontend dependencies
-uv sync        # backend dependencies, into .venv
-bun run dev    # both dev servers
+bun install                               # frontend dependencies
+uv sync                                   # backend dependencies, into .venv
+cp backend/.env.example backend/.env      # then add your OpenRouter and TypeSafe keys
+bun run dev                               # frontend, API and job sync
 ```
 
 - SvelteKit: http://localhost:5173
 - FastAPI: http://127.0.0.1:8000, with interactive API docs at http://127.0.0.1:8000/docs
 
+The first job sync takes about a minute and writes `backend/data/jobs.db`. After that it refreshes every 6 hours.
+
 ## Scripts
 
 | Command                                        | What it does                                       |
 | ---------------------------------------------- | -------------------------------------------------- |
-| `bun run dev`                                  | Run both dev servers in parallel                   |
-| `bun run dev:frontend`, `bun run dev:backend`  | Run one of them                                    |
+| `bun run dev`                                  | Run the frontend, the API and the job sync in parallel |
+| `bun run dev:frontend`, `bun run dev:backend`, `bun run dev:jobs` | Run one of them                     |
+| `bun run jobs:sync`                            | Pull job postings now, even if the last sync is recent |
 | `bun run check`                                | svelte-check, then ruff, ty and pytest             |
 | `bun run build`                                | Production build of the frontend (`frontend/build`) |
 
@@ -52,5 +58,5 @@ browser ──remote functions──▶ SvelteKit server (Bun) ──HTTP──�
 
 The frontend and backend deploy as two services:
 
-- **Backend:** `uv run fastapi run` in `backend/` (listens on `0.0.0.0:8000`).
-- **Frontend:** `bun run build`, then `bun ./build` in `frontend/` (listens on port 3000) with `API_URL` pointing at the backend. The Bun server assumes it sits behind an HTTPS proxy, so form submissions over plain HTTP fail its CSRF check. To try the production build locally, use `bun run preview` in `frontend/`, or set [`paths.origin`](https://svelte.dev/docs/kit/@sveltejs-kit-vite#paths).
+- **Backend:** `uv run fastapi run` in `backend/` (listens on `0.0.0.0:8000`), with the keys from `backend/.env.example` set. Also run `uv run jobs-ingest --loop` (or `uv run jobs-ingest` from cron) on the same disk, since it writes the jobs database the API reads.
+- **Frontend:** `bun run build`, then `bun ./build` in `frontend/` (listens on port 3000) with `API_URL` pointing at the backend and `BODY_SIZE_LIMIT=10M` so résumé PDFs fit. The Bun server assumes it sits behind an HTTPS proxy, so form submissions over plain HTTP fail its CSRF check. To try the production build locally, use `bun run preview` in `frontend/`, or set [`paths.origin`](https://svelte.dev/docs/kit/@sveltejs-kit-vite#paths).

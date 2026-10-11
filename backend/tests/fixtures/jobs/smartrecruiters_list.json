@@ -1,0 +1,121 @@
+{
+ "offset": 0,
+ "limit": 100,
+ "totalFound": 2,
+ "content": [
+  {
+   "company": {
+    "identifier": "Experian",
+    "name": "Experian"
+   },
+   "customField": [
+    {
+     "fieldId": "COUNTRY",
+     "fieldLabel": "Country/Region",
+     "valueId": "us",
+     "valueLabel": "United States"
+    }
+   ],
+   "defaultJobAd": true,
+   "department": {
+    "id": "2618721",
+    "label": "Customer Service"
+   },
+   "experienceLevel": {
+    "id": "not_applicable",
+    "label": "Not Applicable"
+   },
+   "function": {
+    "id": "information_technology",
+    "label": "Information Technology"
+   },
+   "id": "744000152270144",
+   "industry": {
+    "id": "financial_services",
+    "label": "Financial Services"
+   },
+   "jobAdId": "d84d4ddd-1f8e-4d4a-834d-726d64181233",
+   "language": {
+    "code": "en",
+    "label": "English",
+    "labelNative": "English (US)"
+   },
+   "location": {
+    "address": "US",
+    "city": "US",
+    "country": "us",
+    "fullLocation": "US, US, United States",
+    "hybrid": false,
+    "region": "US",
+    "remote": true
+   },
+   "name": "Client Solutions Analyst - Remote",
+   "ref": "https://api.smartrecruiters.com/v1/companies/Experian/postings/744000152270144",
+   "refNumber": "REF32894G",
+   "releasedDate": "2026-09-28T20:42:11.437Z",
+   "typeOfEmployment": {
+    "id": "permanent",
+    "label": "Full-time"
+   },
+   "uuid": "a9eda402-2e86-4dd1-8236-9ab4925d68a9",
+   "visibility": "PUBLIC"
+  },
+  {
+   "company": {
+    "identifier": "Experian",
+    "name": "Experian"
+   },
+   "customField": [
+    {
+     "fieldId": "COUNTRY",
+     "fieldLabel": "Country/Region",
+     "valueId": "us",
+     "valueLabel": "United States"
+    }
+   ],
+   "defaultJobAd": true,
+   "department": {
+    "id": "13221468",
+    "label": "Technology"
+   },
+   "experienceLevel": {
+    "id": "not_applicable",
+    "label": "Not Applicable"
+   },
+   "function": {
+    "id": "engineering",
+    "label": "Engineering"
+   },
+   "id": "744000154114946",
+   "industry": {
+    "id": "financial_services",
+    "label": "Financial Services"
+   },
+   "jobAdId": "7687dff5-e07d-432c-aaf7-3711981ae290",
+   "language": {
+    "code": "en",
+    "label": "English",
+    "labelNative": "English (US)"
+   },
+   "location": {
+    "address": "united states",
+    "city": "united states",
+    "country": "us",
+    "fullLocation": "united states, UNITED STATES, United States",
+    "hybrid": true,
+    "region": "UNITED STATES",
+    "remote": false
+   },
+   "name": "Principal Solutions Architect",
+   "ref": "https://api.smartrecruiters.com/v1/companies/Experian/postings/744000154114946",
+   "refNumber": "REF32898G",
+   "releasedDate": "2026-10-07T14:10:54.724Z",
+   "typeOfEmployment": {
+    "id": "permanent",
+    "label": "Full-time"
+   },
+   "uuid": "fa948170-547d-432d-93c4-53b98a793747",
+   "visibility": "PUBLIC"
+  }
+ ]
+}

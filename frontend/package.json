@@ -10,7 +10,9 @@
 		"start": "bun ./build",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "bun test tests/*.test.ts",
+		"test:browser": "bun tests/browser-check.ts"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-bun": "^1.0.0",

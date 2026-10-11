@@ -1,8 +1,23 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { resolve } from '$app/paths';
+	import { clearHistory, forgetResume, readHistory, type HistoryEntry } from '#lib/resume-history.ts';
 	import { uploadResume } from './resumes.remote.ts';
 	import { resumeUpload } from './schema.ts';
 
 	let dragging = $state(false);
+	let history = $state<HistoryEntry[]>([]);
+	let storageWarning = $state<string | null>(null);
+	function loadHistory() { const saved = readHistory(); history = saved.entries; storageWarning = saved.warning; }
+	onMount(() => {
+		loadHistory();
+		window.addEventListener('storage', loadHistory);
+		return () => window.removeEventListener('storage', loadHistory);
+	});
+	function forget(id?: string) {
+		const saved = id ? forgetResume(id) : clearHistory();
+		history = saved.entries; storageWarning = saved.warning;
+	}
 
 	function drop(event: DragEvent & { currentTarget: HTMLLabelElement }) {
 		event.preventDefault();
@@ -64,7 +79,29 @@
 	<p class="error">{issue.message}</p>
 {/each}
 
+{#if storageWarning}<p class="error" role="status">{storageWarning}</p>{/if}
+{#if history.length}
+	<section class="history" aria-label="Recent résumés">
+		<h2>Your saved runs</h2>
+		<p>Result links, filters and a preview are saved in this browser. Your full results are stored on the server.</p>
+		<ul>{#each history as entry (entry.id)}
+			<li><div><a href={resolve('/resumes/[id]', { id: entry.id })}>Résumé from {new Date(entry.updatedAt).toLocaleString()}</a>
+				{#if entry.snapshot}<span>{entry.snapshot.status.replaceAll('_', ' ')} · {entry.snapshot.progress.succeeded.toLocaleString()} roles scored</span>{/if}</div>
+				<button class="forget" onclick={() => forget(entry.id)} aria-label={`Forget résumé from ${new Date(entry.updatedAt).toLocaleString()} in this browser`}>Forget</button></li>
+		{/each}</ul>
+		<button onclick={() => forget()}>Clear browser history</button>
+		<p class="small">This clears local previews and links. Open a run to delete its server data.</p>
+	</section>
+{/if}
+
 <style>
+	.history { margin-top: 2.5rem; }
+	.history p, .history span { color: var(--color-muted); }
+	.history ul { list-style: none; padding: 0; }
+	.history li { display: flex; gap: 1rem; justify-content: space-between; align-items: center; padding-block: 0.75rem; border-bottom: 1px solid var(--color-border); }
+	.history span { display: block; font-size: 0.85rem; }
+	.forget { background: none; border: 0; text-decoration: underline; cursor: pointer; color: var(--color-muted); }
+	.small { font-size: 0.85rem; }
 	.lead {
 		max-width: 38rem;
 		color: var(--color-muted);

@@ -27,8 +27,10 @@ The pages call the backend, so it has to be running. `bun run dev` at the reposi
 | `bun run preview`   | Preview the production build with Vite                     |
 | `bun run start`     | Run the built server (`bun ./build`, port 3000 by default) |
 | `bun run check`     | Type-check `.ts` and `.svelte` files with `svelte-check`   |
+| `bun run test` | Storage, pagination and live-query cancellation regressions |
+| `bun run test:browser` | Isolated Chrome browser regression with a mock API (macOS) |
 
-The server reads `HOST`, `PORT` and other variables at startup — see the [adapter-bun docs](https://svelte.dev/docs/kit/adapter-bun#Environment-variables). Set `BODY_SIZE_LIMIT=10M` in production: the default of 512K is smaller than many résumé PDFs. The server assumes it runs behind HTTPS, so form submissions to `bun run start` over plain `http://localhost` are rejected as cross-site. Use `bun run preview` to try the production build locally.
+The server reads `HOST`, `PORT` and other variables at startup — see the [adapter-bun docs](https://svelte.dev/docs/kit/adapter-bun#Environment-variables). Set `BODY_SIZE_LIMIT=12M` in production: the default of 512K is smaller than many résumé PDFs, and multipart encoding adds overhead above the 10 MiB PDF limit. The server assumes it runs behind HTTPS, so form submissions to `bun run start` over plain `http://localhost` are rejected as cross-site. Use `bun run preview` to try the production build locally.
 
 ## Environment variables
 
@@ -47,13 +49,16 @@ src/
 ├ env.ts                    environment variable declarations
 ├ lib/                      shared code, imported via #lib/...
 │ ├ assets/favicon.svg
-│ └ server/api.ts           server-only fetch helper and types for the FastAPI backend
+│ ├ contracts.ts            shared API response types
+│ ├ resume-history.ts       versioned browser history and bounded result previews
+│ ├ MatchList.svelte        shared live/cached job cards
+│ └ server/api.ts           server-only, cancellation-aware FastAPI fetch helper
 └ routes/
   ├ +layout.svelte          app shell
   ├ layout.css              global styles
   ├ +page.svelte            /: drop a résumé PDF
   ├ resumes/[id]/           /resumes/[id]: live progress and the ranked matches
-  ├ resumes.remote.ts       remote functions: uploadResume (form), watchResume (live query)
+  ├ resumes.remote.ts       upload, live results, retry, rematch and deletion remote functions
   ├ schema.ts               Valibot schema for the upload, shared with its preflight
   └ +error.svelte           error page
 static/                     files served as-is
@@ -70,12 +75,25 @@ Data flows through [remote functions](https://svelte.dev/docs/kit/remote-functio
 - **`command`** handles mutations triggered from code, such as a button's click handler.
 - **`query.live`** streams values from an async generator. During SSR it returns the first value; in the browser it stays connected and updates in place.
 
-Mutations should call `.refresh()` on the queries they affect, so the updated data comes back in the same response. Remote functions call FastAPI through `api()` in `src/lib/server/api.ts`, which turns an unreachable or failing backend into a 503 or 502 error.
+Mutations in this app reconnect the affected live query after the backend has accepted the change. Remote functions call FastAPI through `api()` in `src/lib/server/api.ts`, which turns an unreachable or failing backend into a 503 or 502 error.
 
 In this app:
 
 - **`uploadResume`** (`form`) takes the PDF from a file field, so `/` works without JavaScript too. With JavaScript, dropping a file on the drop zone fills the field and submits it. The handler passes the PDF to `POST /resumes` and redirects to `/resumes/[id]`. FastAPI rejections (not a PDF, too long) come back as field issues.
-- **`watchResume`** (`query.live`) polls the backend once a second. It yields whenever the status, progress or matches change, and ends once the résumé is done or has failed. Parsing and scoring run in FastAPI's background, so no request has to stay open for them.
+- **`watchResume`** (`query.live`) polls once a second, passing the request's abort signal through both backend fetches and the polling delay. It ends at `done`, `partial` or `failed`; queued and waiting-for-jobs runs continue streaming. The backend's durable worker operates independently of this connection.
+- **`retryResume`, `rematchResume`, `deleteResume`** (`command`) expose recovery, refreshed matching, optional location corrections, and deletion. Results reconnect after mutations.
+
+## Results and browser persistence
+
+The results page reads the live resource's `current`, `loading` and `error` state so it can retain a browser preview when the API is unavailable. The browser defaults to showing all results. Filtering happens in `/match-results` before pagination, and **Load 100 more roles** makes every result reachable. Open catalog, eligible, keyword retrieval, distinct role, shortlist, successful, failed, pending and displayed counts distinguish search coverage from model scoring. Legacy runs explicitly say when retrieval counts were not recorded. Scores are presented as model assessments rather than calibrated interview probabilities.
+
+A missing CV location defaults to United States for new backend scoring. The parsed CV is not fabricated: `effective_location` and `location_source` describe that assumption separately. Earlier runs scored without location remain unfiltered until rescored. Users can optionally correct the location and rescore.
+
+`resume-history.ts` stores up to 10 recent result IDs, location-filter choices, requested result limits and previews of up to 100 job cards under `speedhack.resume-history.v1`. No PDF, CV YAML, name, filename or contact fields are copied into localStorage. Every cached record is bounded and validated; links must use HTTP(S). Storage is accessed only in the browser and failures produce a visible message. If quota is exhausted, saving falls back to IDs and preferences without previews. The backend remains the source of truth, and cached results are labelled with their saved time when live data is unavailable.
+
+The homepage reopens saved runs and can forget individual browser entries or clear browser history. The results page separately deletes server data after an explicit confirmation. Browser storage is local to that browser and origin; it is not an account or cross-device backup.
+
+The isolated browser check starts its own mock API and a frontend copied into a temporary directory, asserts that the running development server’s environment is unchanged, makes no model requests, and checks load-more, server filtering, persisted preferences, refresh, reopening history, unavailable-backend previews, reconnect and clearing history. It saves a screenshot under `.context/` and closes its temporary processes.
 
 On the server, SvelteKit hands uploaded files over as proxies that only claim `File.prototype` through a `getPrototypeOf` trap. Bun's `instanceof` ignores that trap, so Valibot's `v.file()` rejects them. `schema.ts` checks the file's shape instead, and the handler copies the upload into a real `File` before forwarding it.
 

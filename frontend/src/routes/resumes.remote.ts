@@ -1,8 +1,9 @@
 import { error, invalid, redirect } from '@sveltejs/kit';
 import { resolve } from '$app/paths';
-import { form, query } from '$app/server';
+import { command, form, getRequestEvent, query } from '$app/server';
 import * as v from 'valibot';
-import { api, type Match, type Resume } from '#lib/server/api.ts';
+import { api } from '#lib/server/api.ts';
+import { streamResume } from '#lib/server/resume-stream.ts';
 import { resumeUpload } from './schema.ts';
 
 /** Hands the PDF to the backend, which parses and matches it in the background */
@@ -22,31 +23,34 @@ export const uploadResume = form(resumeUpload, async ({ resume }, issue) => {
 	redirect(303, resolve('/resumes/[id]', { id }));
 });
 
-/**
- * Streams a résumé's progress: parsing, then matching, then the final ranking. Each value
- * carries the best matches so far. The stream ends once the résumé is done or has failed.
- */
-export const watchResume = query.live(v.string(), async function* (id) {
-	let previous = '';
+const resumeId = v.pipe(v.string(), v.regex(/^[a-f0-9]{32}$/));
 
-	while (true) {
-		const response = await api(`resumes/${encodeURIComponent(id)}`);
-		if (response.status === 404) error(404, 'Résumé not found');
-		const resume: Resume = await response.json();
+export const watchResume = query.live(v.object({
+	id: resumeId,
+	nearby: v.boolean(),
+	limit: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(10000))
+}), async function* (input) {
+	const { request } = getRequestEvent();
+	yield* streamResume(input, request.signal, api);
+});
 
-		let matches: Match[] = [];
-		if (resume.status === 'matching' || resume.status === 'done') {
-			matches = await (await api(`resumes/${encodeURIComponent(id)}/matches?limit=100`)).json();
-		}
+export const retryResume = command(resumeId, async (id) => {
+	const response = await api(`resumes/${id}/retry`, { method: 'POST' });
+	if (!response.ok) error(response.status, 'Could not retry this résumé');
+});
 
-		const value = { resume, matches };
-		const serialized = JSON.stringify(value);
-		if (serialized !== previous) {
-			previous = serialized;
-			yield value;
-		}
+export const rematchResume = command(v.object({
+	id: resumeId,
+	location: v.optional(v.pipe(v.string(), v.trim(), v.minLength(2), v.maxLength(200)))
+}), async ({ id, location }) => {
+	const response = await api(`resumes/${id}/rematch`, {
+		method: 'POST', headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(location ? { location } : {})
+	});
+	if (!response.ok) error(response.status, 'Could not refresh matches');
+});
 
-		if (resume.status === 'done' || resume.status === 'failed') return;
-		await new Promise((resolve) => setTimeout(resolve, 1000));
-	}
+export const deleteResume = command(resumeId, async (id) => {
+	const response = await api(`resumes/${id}`, { method: 'DELETE' });
+	if (!response.ok && response.status !== 404) error(response.status, 'Could not delete this résumé');
 });

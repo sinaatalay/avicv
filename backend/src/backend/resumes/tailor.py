@@ -37,7 +37,7 @@ __all__ = [
     "tailor_resume",
 ]
 
-TAILOR_VERSION = "2"
+TAILOR_VERSION = "3"
 MAX_DRAFT_ATTEMPTS = 3
 
 
@@ -64,8 +64,16 @@ Do substantive editorial work, not merely rearrangement or cosmetic synonym swap
   prioritize the most relevant accomplishments and trim repetition. Keep meaningful detail,
   exact metrics and important qualifications. Preserve the distinction between contributing,
   leading, prototyping, deploying and operating. Do not convert purposes into achieved results.
+  Keep independent accomplishments in separate sentences when combining them would imply an
+  unproven technical relationship. 'Supports deployment' is not 'deployed'; 'designed to' is
+  not 'achieved'. Preserve these distinctions even when the stronger wording sounds natural.
 - Rewrite relevant project prose and bullets, reorder projects and skills, and rename stale
   job-specific headings to truthful, useful headings for the new application.
+- Review the entire CV for relevance, including older roles that establish customer feedback,
+  documentation, full-stack delivery or other requirements absent from the newest role. Tighten
+  their narratives where useful instead of stopping after editing the newest role. Remove
+  redundant introductory sections and generic filler when their evidence is already in the
+  profile or experience. Preserve already effective wording; arbitrary synonym swaps add no value.
 - Use terminology from the job only when the source establishes equivalent experience.
   Never add requested technologies, certifications, domain experience, leadership or outcomes
   just because they would improve the match. Do not derive years of experience or new metrics.
@@ -169,6 +177,12 @@ elsewhere does not establish its use at an employer. Preserve units, scope, qual
 negation and whether an outcome was a goal or achieved. Never upgrade 'helped' to 'led', a prototype
 to production, coursework to a degree, familiarity to expertise, or an employer's scale to a
 candidate's achievement. Do not invent benefits to make an accomplishment sound stronger.
+Be strict about subtle scope changes: supporting deployment modes does not prove actual deployments;
+'designed to' does not prove an achieved outcome. Joining two independent accomplishments with
+'by', 'using', or a participle such as 'attaching' can falsely assert they were one pipeline or
+causally related. Require explicit source support for that relationship; otherwise request separate
+sentences. When the wording admits a materially stronger unsupported reading, mark it false and
+request the narrower wording even if a charitable reading could be true.
 If any clause is unsupported, mark that passage false and explain precisely which assertion must
 be removed or corrected. Give a short evidence-based reason even for supported passages.
 """

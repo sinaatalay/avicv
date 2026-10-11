@@ -7,7 +7,7 @@ It does four things:
 1. **Collects job postings.** `jobs-ingest` pulls the public job boards of the employers listed in `jobs/boards.toml` (Greenhouse, Ashby, Lever and SmartRecruiters), plus remote-job searches on Himalayas, into `data/jobs.db`. It refreshes them every 6 hours.
 2. **Parses résumés.** Gemini 3.8 Flash, called through OpenRouter with [Pydantic AI](https://ai.pydantic.dev), reads an uploaded PDF and writes it as [RenderCV](https://docs.rendercv.com) YAML. RenderCV validates the YAML. If validation fails, RenderCV's error messages go back to the model so it can correct them.
 3. **Matches résumés to jobs.** Full-text search shortlists open US/Canada roles. Then [Jev](https://docs.typesafe.ai), TypeSafe's decision model, scores each role against the résumé.
-4. **Creates tailored PDFs.** A background vision loop reconstructs the uploaded CV's design once. Each job-specific CV selects relevant source evidence and renders with those saved settings.
+4. **Creates tailored PDFs.** A background vision loop reconstructs the uploaded CV's design once. Each job-specific CV rewrites relevant experience against the source evidence, passes a separate factual review, and renders with those saved settings.
 
 ## Setup
 
@@ -88,7 +88,9 @@ Scores retain immutable job snapshots and stable provider identities, so a rebui
 
 After parsing is saved, the API enqueues a separate design task and continues matching immediately. The design worker renders the original PDF into page images, measures its font sizes and font families when available, asks the vision model for RenderCV settings, renders a draft, compares every original and draft page, and refines the settings within `DESIGN_MAX_ITERATIONS`. It saves the best usable design once per uploaded CV. Font substitution and layout differences are possible; the visual match is an approximation. All tailored versions reuse those exact saved settings. Historical uploads without their original PDF use a clearly identified default design.
 
-`Tailor CV` selects and orders evidence from the parsed CV against the saved job description. The model returns source-entry and highlight references rather than new claims. Code assembles the document from the original values, preserving employment and education entries, chronology, identity, dates, qualifications, and metrics. Optional sections and highlights can be selected for relevance. It then renders a new PDF with the saved design.
+`Tailor CV` rewrites the profile, relevant experience narratives, project descriptions, and stale section headings against the saved job description. Every changed passage cites original CV evidence. Code preserves contact information, employer names, job titles, dates, degrees, employment/education entries and chronology. Entry-specific rewrites can cite only that same entry; skill lists select exact source items. New numbers, URLs, unknown citations and unsupported fields are rejected before generation proceeds.
+
+A separate model call reviews every changed passage against its cited evidence, without receiving the job description. Unsupported assertions must be corrected and reviewed again, with a bounded number of attempts; failed or incomplete reviews never produce a downloadable PDF. This reduces factual drift but is not a guarantee of accuracy: users should still review their CV before applying. The verified document renders using the original saved design, with pagination allowed to change as content changes. Tailoring versions are part of the cache key, so improvements generate fresh PDFs without repeating design reconstruction or adding duplicate time-saved credit.
 
 Design and tailoring each have an independent leased worker lane, separate from matching. Requests, checkpoints, chosen designs, tailored YAML, and completed PDFs persist in `app.db`. Repeated requests reuse the same result when the CV, job snapshot, design, model, and renderer versions agree. Interrupted work resumes from saved checkpoints; deleting a CV also removes its generated artifacts. There is no dependency on an open browser tab.
 
@@ -146,7 +148,8 @@ src/backend/
 │ ├ queue.py         transactional claims, leases, and recovery
 │ ├ storage.py       snapshots, score identities, and progress
 │ ├ design.py        original/draft image comparison and reusable design selection
-│ ├ tailor.py        validated selection of original CV evidence
+│ ├ tailor.py        substantive drafting and independent factual review
+│ ├ tailor_plan.py   cited narrative edits and immutable source metadata
 │ ├ render.py        isolated RenderCV PDF rendering and page previews
 │ ├ artifact_store.py durable design requests and tailored PDF cache
 │ ├ artifact_queue.py independent design/tailoring claims, leases, and recovery

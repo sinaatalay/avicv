@@ -60,7 +60,32 @@ def complete_plan(yaml: str = CV) -> tailor.TailoringPlan:
     )
 
 
-def test_tailoring_can_only_reorder_or_select_existing_facts() -> None:
+def grounded_plan() -> tailor.TailoringPlan:
+    plan = complete_plan()
+    plan.profile = tailor.GroundedText(
+        text=(
+            "Mechanical engineer with experience building a MATLAB thermal model "
+            "and reducing measured heat loss by 12 percent."
+        ),
+        evidence_ids=["headline", "s0:e0"],
+    )
+    return plan
+
+
+def supported_review(claims: list[dict]) -> dict:
+    return {
+        "claims": [
+            {
+                "claim_id": claim["id"],
+                "supported": True,
+                "reason": "The cited source supports the entire passage.",
+            }
+            for claim in claims
+        ]
+    }
+
+
+def test_legacy_selection_reorders_or_selects_existing_facts() -> None:
     plan = complete_plan()
     plan.sections[0].entries[0].highlights = [1, 0]
     plan.sections[2].entries = plan.sections[2].entries[:1]
@@ -119,7 +144,7 @@ def test_invalid_or_fact_removing_plans_are_rejected(case: str) -> None:
         tailor.apply_plan(CV, plan)
 
 
-def test_model_cannot_add_freeform_claims() -> None:
+def test_model_rejects_unrecognized_claim_fields() -> None:
     data = complete_plan().model_dump()
     data["summary"] = "Invented Stanford PhD with 20 years of experience"
     with pytest.raises(ValidationError):
@@ -202,7 +227,23 @@ def test_model_validation_retries_invalid_plan_without_exposing_contact_fields(
 
     def respond(messages, info):
         requests.append(messages)
-        plan = complete_plan().model_dump()
+        payload = json.loads(
+            next(
+                part.content
+                for message in messages
+                for part in message.parts
+                if part.part_kind == "user-prompt"
+            )
+        )
+        if "review_schema" in payload:
+            assert set(payload) == {"review_schema", "claims"}
+            assert "selection_schema" not in str(messages)
+            assert "JOB_ONLY_REQUIREMENT" not in str(messages)
+            return ModelResponse(
+                parts=[TextPart(json.dumps(supported_review(payload["claims"])))]
+            )
+        assert "selection_schema" in payload
+        plan = grounded_plan().model_dump()
         if len(requests) == 1:
             plan["sections"][0]["entries"].reverse()
         return ModelResponse(parts=[TextPart(json.dumps(plan))])
@@ -213,15 +254,20 @@ def test_model_validation_retries_invalid_plan_without_exposing_contact_fields(
     result = asyncio.run(
         tailor.tailor_resume(
             CV,
-            {"title": "Thermal Engineer", "description_text": "Thermal modeling"},
+            {
+                "title": "Thermal Engineer",
+                "description_text": "Thermal modeling JOB_ONLY_REQUIREMENT",
+            },
             settings,
         )
     )
-    assert len(requests) == 2
+    assert len(requests) == 3  # Invalid draft, corrected draft, independent fact check.
     assert result.yaml and result.plan.sections[0].entries[0].entry_id == "s0:e0"
     assert "private@example.com" not in str(requests)
     assert "Candidate Name" not in str(requests)
     assert "private@example.com" in result.yaml
+    assert result.plan.profile is not None
+    assert result.plan.profile.text in str(tailor.source_document(result.yaml))
     assert json.loads(result.plan.model_dump_json())["sections"]
 
 
@@ -253,11 +299,25 @@ def test_gemini_wire_protocol_uses_validated_text_without_tool_schema(
             and "tool_choice" not in body
             and "response_format" not in body
         )
-        assert "selection_schema" in str(body["messages"])
         assert "private@example.com" not in str(body["messages"])
-        plan = complete_plan().model_dump()
-        if len(requests) == 1:
-            plan["sections"][0]["entries"].reverse()
+        assert "Candidate Name" not in str(body["messages"])
+        payload = json.loads(
+            next(
+                message["content"]
+                for message in body["messages"]
+                if message["role"] == "user"
+            )
+        )
+        if "review_schema" in payload:
+            assert set(payload) == {"review_schema", "claims"}
+            assert "selection_schema" not in str(body["messages"])
+            assert "JOB_ONLY_REQUIREMENT" not in str(body["messages"])
+            output = supported_review(payload["claims"])
+        else:
+            assert "selection_schema" in payload
+            output = grounded_plan().model_dump()
+            if len(requests) == 1:
+                output["sections"][0]["entries"].reverse()
         return httpx.Response(
             200,
             json={
@@ -269,7 +329,7 @@ def test_gemini_wire_protocol_uses_validated_text_without_tool_schema(
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": json.dumps(plan)},
+                        "message": {"role": "assistant", "content": json.dumps(output)},
                         "finish_reason": "stop",
                     }
                 ],
@@ -290,11 +350,14 @@ def test_gemini_wire_protocol_uses_validated_text_without_tool_schema(
             monkeypatch.setattr(tailor, "openrouter_model", lambda settings: model)
             return await tailor.tailor_resume(
                 CV,
-                {"title": "Thermal Engineer", "description_text": "Thermal modeling"},
+                {
+                    "title": "Thermal Engineer",
+                    "description_text": "Thermal modeling JOB_ONLY_REQUIREMENT",
+                },
                 settings,
             )
 
     result = asyncio.run(run())
-    assert len(requests) == 2
+    assert len(requests) == 3
     assert result.plan.sections[0].entries[0].entry_id == "s0:e0"
     assert "private@example.com" in result.yaml

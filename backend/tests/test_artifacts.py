@@ -13,6 +13,7 @@ from backend.main import app
 from backend.matching.jev import JobScore
 from backend.resumes import (
     artifact_queue,
+    artifact_store,
     artifacts,
     design,
     pipeline,
@@ -152,6 +153,62 @@ def test_legacy_cv_uses_explicit_default_design_without_reconstruction(
     result = client.get(f"/resumes/resume/tailored/{artifact}").json()
     assert result["status"] == "ready" and result["design_source"] == "default"
     assert mocks["design"] == 0
+
+
+def test_new_tailoring_version_reuses_design_without_hiding_old_pdf_or_double_counting(
+    settings: Settings, mocks, make_pdf, monkeypatch
+) -> None:
+    key = seed(settings, pdf=make_pdf())[0]
+    client = TestClient(app)
+    first = client.post("/resumes/resume/tailor", json={"job_key": key}).json()["id"]
+    run_lane(settings, "design")
+    run_lane(settings, "tailor")
+    first_url = f"/resumes/resume/tailored/{first}/cv.pdf"
+    old_pdf = client.get(first_url)
+    assert old_pdf.status_code == 200 and old_pdf.content.startswith(b"%PDF-")
+    savings = client.get("/resumes/resume/time-savings").json()
+    assert savings["cvs_tailored"] == 1
+    conn = connect_app(settings.app_db)
+    selected_design = tuple(
+        conn.execute("SELECT id, design_json FROM resume_designs").fetchone()
+    )
+
+    # A deployed tailoring revision changes the cache identity, not the design.
+    updated_version = f"{tailor.TAILOR_VERSION}-next"
+    for module in (tailor, artifact_store, artifacts):
+        monkeypatch.setattr(module, "TAILOR_VERSION", updated_version)
+    created = client.post("/resumes/resume/tailor", json={"job_key": key})
+    second = created.json()["id"]
+    assert created.status_code == 202 and second != first
+    assert (
+        client.post("/resumes/resume/tailor", json={"job_key": key}).json()["id"]
+        == second
+    )
+    assert client.get(first_url).content == old_pdf.content
+    assert client.get("/resumes/resume/time-savings").json() == savings
+    run_lane(settings, "tailor")
+    assert client.get(f"/resumes/resume/tailored/{second}").json()["status"] == "ready"
+    assert client.get(f"/resumes/resume/tailored/{second}/cv.pdf").status_code == 200
+    assert client.get(first_url).content == old_pdf.content
+    assert client.get("/resumes/resume/time-savings").json() == savings
+    assert conn.execute("SELECT COUNT(*) FROM resume_designs").fetchone()[0] == 1
+    assert (
+        tuple(conn.execute("SELECT id, design_json FROM resume_designs").fetchone())
+        == selected_design
+    )
+    assert conn.execute("SELECT COUNT(*) FROM tailored_cvs").fetchone()[0] == 2
+    assert (
+        conn.execute(
+            "SELECT version FROM tailored_cvs WHERE id = ?", (second,)
+        ).fetchone()[0]
+        == updated_version
+    )
+    assert (
+        client.post("/resumes/resume/tailor", json={"job_key": key}).json()["id"]
+        == second
+    )
+    assert mocks == {"design": 1, "tailor": 2, "render": 2}
+    conn.close()
 
 
 def test_render_failure_retries_from_factual_yaml_checkpoint(

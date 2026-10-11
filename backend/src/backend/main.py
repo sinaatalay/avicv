@@ -1,6 +1,22 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-app = FastAPI(title="speedhack API")
+from .config import get_settings
+from .db import connect_app
+from .resumes import router as resumes
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    connect_app(get_settings().app_db).close()  # creates app.db and its tables
+    yield
+
+
+app = FastAPI(title="speedhack API", lifespan=lifespan)
+
+app.include_router(resumes.router)
 
 
 @app.get("/health")

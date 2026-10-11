@@ -9,7 +9,16 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "fastapi[standard]>=0.143.0",
+    "httpx2>=2.13.1",
+    "pydantic-ai-slim[openrouter]>=2.55.0",
+    "pydantic-settings>=2.15.0",
+    "pypdf>=6.20.0",
+    "rendercv>=2.8",
+    "typesafe-sdk>=0.7.4",
 ]
+
+[project.scripts]
+jobs-ingest = "backend.jobs.ingest:main"
 
 [build-system]
 requires = ["uv_build>=0.13.0,<0.14.0"]
@@ -17,7 +26,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.13.1",
     "pytest>=9.1.1",
     "ruff>=0.17.0",
     "ty>=0.0.86",

@@ -47,6 +47,41 @@ CREATE TABLE IF NOT EXISTS resume_queue (
     attempts INTEGER NOT NULL DEFAULT 0
 )
 """
+DESIGN_SCHEMA = """
+CREATE TABLE IF NOT EXISTS resume_designs (
+    id TEXT PRIMARY KEY,
+    resume_id TEXT NOT NULL UNIQUE REFERENCES resumes (id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    version TEXT NOT NULL, model TEXT NOT NULL, source_yaml TEXT NOT NULL,
+    source_pdf_hash TEXT NOT NULL, status TEXT NOT NULL,
+    design_json TEXT, source TEXT, quality_score REAL, iterations INTEGER,
+    notes TEXT, error TEXT, cost_usd REAL NOT NULL DEFAULT 0
+)
+"""
+TAILORED_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tailored_cvs (
+    id TEXT PRIMARY KEY,
+    resume_id TEXT NOT NULL REFERENCES resumes (id) ON DELETE CASCADE,
+    design_id TEXT NOT NULL REFERENCES resume_designs (id) ON DELETE CASCADE,
+    fingerprint TEXT NOT NULL, job_key TEXT NOT NULL, source_yaml TEXT NOT NULL,
+    job_snapshot TEXT NOT NULL, model TEXT NOT NULL, version TEXT NOT NULL,
+    render_version TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    status TEXT NOT NULL, error TEXT, plan_json TEXT, tailored_yaml TEXT,
+    pdf_bytes BLOB, filename TEXT, cost_usd REAL NOT NULL DEFAULT 0,
+    UNIQUE (resume_id, fingerprint)
+)
+"""
+ARTIFACT_QUEUE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS artifact_queue (
+    kind TEXT NOT NULL CHECK (kind IN ('design', 'tailor')),
+    target_id TEXT NOT NULL,
+    resume_id TEXT NOT NULL REFERENCES resumes (id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'running', 'done')),
+    available_at REAL NOT NULL, owner TEXT, lease_until REAL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (kind, target_id)
+)
+"""
 ADDED_COLUMNS = [
     ("parse_preview", "TEXT"),
     ("upload_pdf", "BLOB"),
@@ -59,7 +94,7 @@ ADDED_COLUMNS = [
     ("planned_generation", "INTEGER NOT NULL DEFAULT -1"),
     ("current_generation", "INTEGER NOT NULL DEFAULT 0"),
 ]
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def connect(path: Path, *, readonly: bool = False) -> sqlite3.Connection:
@@ -131,6 +166,12 @@ def connect_app(path: Path) -> sqlite3.Connection:
         )
         conn.execute(WORK_SCHEMA)
         conn.execute(QUEUE_SCHEMA)
+        conn.execute(DESIGN_SCHEMA)
+        conn.execute(TAILORED_SCHEMA)
+        conn.execute(ARTIFACT_QUEUE_SCHEMA)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS artifact_queue_ready ON artifact_queue (kind, state, available_at)"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS queue_ready ON resume_queue (state, available_at)"
         )

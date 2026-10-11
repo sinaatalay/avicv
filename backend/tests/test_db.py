@@ -133,7 +133,7 @@ def test_migration_preserves_scores_and_backfills_only_verified_identity(
 def test_v1_upgrade_keeps_progress_and_separates_unplanned_generation(
     tmp_path: Path,
 ) -> None:
-    from backend.db import MATCHES_SCHEMA, connect_app
+    from backend.db import MATCHES_SCHEMA, SCHEMA_VERSION, connect_app
 
     path = tmp_path / "app.db"
     conn = connect_app(path)
@@ -152,7 +152,7 @@ def test_v1_upgrade_keeps_progress_and_separates_unplanned_generation(
     assert row["current_generation"] == 0
     assert row["match_done"] == row["match_attempted"] == 2
     assert "results_context" in dict(row)
-    assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert upgraded.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert (
         next(
             column

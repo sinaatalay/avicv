@@ -68,6 +68,9 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Settin
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     monkeypatch.setenv("TYPESAFE_API_KEY", "test-typesafe-key")
+    # Artifact tests advance their mocked workers explicitly; ordinary résumé
+    # tests must never start real design/tailoring provider calls.
+    monkeypatch.setenv("ARTIFACT_WORKERS_ENABLED", "false")
     get_settings.cache_clear()
     yield get_settings()
     get_settings.cache_clear()

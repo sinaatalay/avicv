@@ -1,8 +1,7 @@
 """Résumé PDF -> validated RenderCV model, with Gemini through OpenRouter.
 
 Gemini reads the PDF (natively, so scans work too) and writes RenderCV YAML. RenderCV parses and validates it.
-If that fails, RenderCV's error messages, which carry YAML line numbers, go back to the model so it can correct
-the document. Writing YAML works better than asking Gemini to fill RenderCV's model as JSON: RenderCV's
+If that fails, bounded field validation errors go back to the model so it can correct the document. Writing YAML works better than asking Gemini to fill RenderCV's model as JSON: RenderCV's
 `sections` mapping has dynamic keys, which Gemini's structured output can't express.
 """
 
@@ -14,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import ValidationError
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, TextOutput
 from pydantic_ai.messages import (
     ModelResponse,
@@ -26,13 +26,12 @@ from pydantic_ai.models import Model
 from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pypdf import PdfReader
-from rendercv.exception import RenderCVUserValidationError
 from rendercv.schema.models.cv.cv import Cv
 from rendercv.schema.models.rendercv_model import RenderCVModel
-from rendercv.schema.rendercv_model_builder import build_rendercv_dictionary_and_model
 from rendercv.schema.sample_generator import dictionary_to_yaml
 
 from ..config import Settings
+from .render import RenderError, cv_dictionary
 
 RENDERCV_GUIDE = """\
 ## RenderCV format (v2.8)
@@ -153,23 +152,29 @@ def extra_checks(cv: Cv) -> list[str]:
 def yaml_to_model(ctx: RunContext[None], text: str) -> RenderCVModel:
     """Output function: RenderCV validates the YAML, and its errors go back to the model."""
     try:
-        _, model = build_rendercv_dictionary_and_model(strip_fences(text))
-    except RenderCVUserValidationError as e:
-        lines = [
-            f"- line {err.yaml_location[0][0] if err.yaml_location else '?'}"
-            f" ({'.'.join(map(str, err.schema_location or ())) or 'document'}): {err.message}"
-            for err in e.validation_errors
-        ]
-        raise ModelRetry(
-            "RenderCV rejected the YAML:\n"
-            + "\n".join(lines)
-            + "\nReply with the corrected full YAML."
+        model = RenderCVModel.model_validate(
+            {"cv": cv_dictionary(strip_fences(text), strict=True)}
         )
-    except Exception as e:  # noqa: BLE001 - ruamel and RenderCV raise KeyError, AttributeError, ... on odd YAML
+    except RenderError as e:
+        cause = e.__cause__
+        if isinstance(cause, ValidationError):
+            detail = "\n".join(
+                f"- cv.{'.'.join(map(str, item['loc']))}: {item['msg']}"
+                for item in cause.errors(include_input=False, include_url=False)[:15]
+            )[:1500]
+        elif cause is not None:
+            mark = getattr(cause, "problem_mark", None)
+            location = f" near line {mark.line + 1}" if mark else ""
+            detail = (
+                f"Invalid YAML{location}. Use plain block YAML without aliases or tags."
+            )
+        else:
+            detail = str(e)
         raise ModelRetry(
-            f"This YAML could not be read ({type(e).__name__}: {str(e)[:200]}). Use plain block-style YAML without "
-            "anchors, aliases, tags, flow collections or complex keys. Reply with the corrected full YAML."
-        )
+            "RenderCV rejected the CV content: "
+            + detail
+            + "\nReply with corrected YAML containing only cv, without design, locale, settings, photos, or custom themes."
+        ) from e
     if problems := extra_checks(model.cv):
         raise ModelRetry(
             "Fix these problems and reply with the corrected full YAML:\n- "
@@ -303,4 +308,4 @@ def preview(partial_yaml: str) -> dict[str, Any]:
 
 def load_yaml(text: str) -> RenderCVModel:
     """Rebuild the model from YAML stored earlier."""
-    return build_rendercv_dictionary_and_model(text)[1]
+    return RenderCVModel.model_validate({"cv": cv_dictionary(text)})

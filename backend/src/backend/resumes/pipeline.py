@@ -12,6 +12,7 @@ from ..config import Settings
 from ..db import connect_app
 from ..matching import jev
 from ..matching.prefilter import shortlist_with_diagnostics
+from .artifact_store import ensure_design
 from .parse import load_yaml, parse_resume, preview
 from .queue import Claim, LeaseLost, fence
 from .storage import job_key, refresh_progress, snapshot
@@ -84,6 +85,9 @@ async def process_resume(claim: Claim, settings: Settings) -> float | None:
                 "UPDATE resumes SET rendercv_yaml = ?, parse_seconds = ?, parse_cost_usd = ? WHERE id = ?",
                 (parsed.yaml, parsed.seconds, parsed.cost_usd, resume_id),
             )
+            # This durable design request is committed with parsing. Its separate
+            # worker lane cannot hold up shortlisting or matching.
+            ensure_design(conn, resume_id, settings, accepted_upload=True)
             conn.commit()
             candidate = jev.candidate_state(parsed.model.cv)
         else:

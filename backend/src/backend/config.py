@@ -18,6 +18,16 @@ class Settings(BaseSettings):
     data_dir: Path = BACKEND_DIR / "data"
     parse_model: str = "google/gemini-3.8-flash"
     parse_reasoning: Literal["none", "minimal", "low", "medium", "high"] = "low"
+    design_model: str = "google/gemini-3.8-flash"
+    tailor_model: str = "google/gemini-3.8-flash"
+    design_max_iterations: int = Field(default=3, ge=1, le=5)
+    design_timeout_seconds: float = Field(default=300, ge=30, le=900)
+    render_timeout_seconds: float = Field(default=60, ge=1, le=300)
+    artifact_workers_enabled: bool = True
+    artifact_queue_max_pending: int = Field(default=100, ge=1, le=10000)
+    artifact_lease_seconds: float = Field(default=90, ge=3, le=600)
+    artifact_timeout_seconds: float = Field(default=900, ge=1, le=3600)
+    artifact_poll_seconds: float = Field(default=0.5, gt=0, le=30)
     jev_model: str = "jev-1.13.0"
     match_limit: int = Field(default=1000, ge=1, le=10000)
     match_concurrency: int = Field(default=32, ge=1, le=128)

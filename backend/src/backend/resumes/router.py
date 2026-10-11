@@ -21,6 +21,7 @@ from rendercv.schema.sample_generator import dictionary_to_yaml
 
 from ..config import Settings, get_settings
 from ..db import connect_app
+from .artifact_store import ArtifactQueueFull, check_artifact_capacity
 from .catalog import catalog_states
 from .parse import load_yaml
 from .queue import enqueue
@@ -158,6 +159,10 @@ async def upload_resume(file: UploadFile, settings: SettingsDep) -> ResumeCreate
     try:
         conn.execute("BEGIN IMMEDIATE")
         ensure_queue_capacity(conn, settings)
+        try:
+            check_artifact_capacity(conn, settings, "design")
+        except ArtifactQueueFull as exc:
+            raise HTTPException(429, str(exc), headers={"Retry-After": "30"}) from exc
         conn.execute(
             """
             INSERT INTO resumes (id, created_at, filename, pdf_sha256, status, upload_pdf)

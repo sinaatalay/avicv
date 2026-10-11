@@ -20,8 +20,8 @@
 	}
 	function savedStatus(entry: HistoryEntry) {
 		if (!entry.snapshot) return null;
-		const { status, progress } = entry.snapshot;
-		if (status === 'done' || status === 'partial') return `${progress.succeeded.toLocaleString()} jobs`;
+		const { status, goodTotal } = entry.snapshot;
+		if (status === 'done' || status === 'partial') return goodTotal === undefined ? null : `${goodTotal.toLocaleString()} good ${goodTotal === 1 ? 'match' : 'matches'}`;
 		if (status === 'failed') return 'Needs another try';
 		return status === 'parsing' ? 'Reading your CV…' : 'Finding jobs…';
 	}

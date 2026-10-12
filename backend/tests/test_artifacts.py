@@ -504,3 +504,59 @@ def test_download_filename_is_bounded_and_cannot_inject_paths_or_headers() -> No
         CV, {"company": '../Company/";\r\nInjected: x', "title": "Role" * 100}
     )
     assert re.fullmatch(r"[A-Za-z0-9_-]{1,150}\.pdf", filename)
+
+
+@pytest.mark.parametrize("cancelled_child", ["processing", "heartbeat"])
+def test_unexpected_child_cancellation_fails_request_without_cancelling_worker_lane(
+    settings: Settings, mocks, monkeypatch, cancelled_child: str
+) -> None:
+    key = seed(settings)[0]
+    client = TestClient(app)
+    artifact = client.post("/resumes/resume/tailor", json={"job_key": key}).json()["id"]
+    run_lane(settings, "design")
+    normal_process = artifacts.process_artifact
+    normal_heartbeat = artifact_queue.artifact_heartbeat
+
+    async def cancelled(*args):
+        raise asyncio.CancelledError
+
+    async def waiting(*args):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        artifacts,
+        "process_artifact",
+        cancelled if cancelled_child == "processing" else waiting,
+    )
+    monkeypatch.setattr(
+        artifact_queue,
+        "artifact_heartbeat",
+        cancelled if cancelled_child == "heartbeat" else waiting,
+    )
+    claim = artifact_queue.claim_artifact(settings, "tailor")
+    assert claim is not None
+    # Cancellation of a child operation is a failed attempt, not a request to
+    # terminate the long-running worker task. The next request must still run.
+    asyncio.run(artifact_queue.run_artifact_claim(settings, claim))
+    failed = client.get(f"/resumes/resume/tailored/{artifact}").json()
+    assert failed["status"] == "failed"
+    assert failed["error"]
+    assert failed["download_url"] is None
+    conn = connect_app(settings.app_db)
+    assert (
+        conn.execute(
+            "SELECT state FROM artifact_queue WHERE target_id=?", (artifact,)
+        ).fetchone()[0]
+        == "done"
+    )
+    conn.close()
+    monkeypatch.setattr(artifacts, "process_artifact", normal_process)
+    monkeypatch.setattr(artifact_queue, "artifact_heartbeat", normal_heartbeat)
+    assert (
+        client.post("/resumes/resume/tailor", json={"job_key": key}).json()["id"]
+        == artifact
+    )
+    run_lane(settings, "tailor")
+    ready = client.get(f"/resumes/resume/tailored/{artifact}").json()
+    assert ready["status"] == "ready"
+    assert client.get(ready["download_url"]).status_code == 200

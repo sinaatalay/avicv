@@ -17,6 +17,7 @@ let savingsRequests = 0;
 let tailoringReady = false;
 let tailorPosts = 0;
 let pdfDownloads = 0;
+let pdfUnavailable = false;
 const artifactId = 'c'.repeat(32);
 const sessionCookie = 'fixture-session-opaque-value';
 const workspaceId = '1'.repeat(32);
@@ -109,6 +110,7 @@ const api = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(request) {
 			design_source: 'reconstructed', download_url: null }, { status: 202 });
 	}
 	if (url.pathname.endsWith('/cv.pdf')) {
+		if (pdfUnavailable) return Response.json({ detail: 'Download temporarily unavailable' }, { status: 503 });
 		pdfDownloads++;
 		return new Response(pdfFixture, { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="Candidate-Engineer.pdf"' } });
 	}
@@ -424,9 +426,22 @@ try {
 		await waitFor(`${savings} === null`);
 		assert.equal(await evaluate(`document.body.innerText.includes('Savings unavailable')`), false, 'Unavailable savings never introduces an engineering error panel');
 	}
+	await changePage('Page.navigate', { url: `${base}/resumes/${resumeId}` });
+	await waitFor(`${firstCard}?.querySelector('.job-actions button:last-child')?.textContent.includes('Download tailored CV')`);
+	const downloadsBeforeRecovery = pdfDownloads, postsBeforeRecovery = tailorPosts;
+	pdfUnavailable = true;
+	await evaluate(`${firstCard}.querySelector('.job-actions button:last-child').click()`);
+	await waitFor(`${firstCard}.innerText.includes('Your CV is ready. Try downloading it again.') && !${firstCard}.querySelector('.job-actions button:last-child').disabled`);
+	assert.equal(pdfDownloads, downloadsBeforeRecovery);
+	assert.equal(await evaluate(`JSON.parse(localStorage.getItem('${tailorKey}')).entries.find(entry => entry.resumeId === '${resumeId}').downloadPending`), true);
+	pdfUnavailable = false;
+	await evaluate(`window.dispatchEvent(new Event('focus'))`);
+	await waitFor(`JSON.parse(localStorage.getItem('${tailorKey}')).entries.find(entry => entry.resumeId === '${resumeId}').downloadPending === false`);
+	assert.equal(pdfDownloads, downloadsBeforeRecovery + 1, 'Discovery resumes the requested download after a temporary PDF failure');
+	assert.equal(tailorPosts, postsBeforeRecovery + 1, 'Recovery reuses the artifact without creating another tailoring request');
 	assert.deepEqual(exceptions, []);
 	assert.equal(readRealEnv(), originalRealEnv, 'The browser test must not modify the running dev server environment');
-	console.log('PASS: estimated time saved from successful checks and ready PDFs, transparent assumptions, no inflation after failed/queued requests or repeated downloads/refresh, live tailoring update, zero/unavailable savings hidden; bulk copying all 115 ranked good links beyond visible cards, bulk empty/error/denied states, three actions, direct Apply links, clipboard success and denied fallback, durable tailoring and automatic PDF download after reload/tab switch, version revalidation, category boundary and counts, independent pagination, no percentages or diagnostics, history and preferences, offline/reconnect, mobile layout, zero-good fallback, browser isolation.');
+	console.log('PASS: estimated time saved from successful checks and ready PDFs, transparent assumptions, no inflation after failed/queued requests or repeated downloads/refresh, live tailoring update, zero/unavailable savings hidden; bulk copying all 115 ranked good links beyond visible cards, bulk empty/error/denied states, three actions, direct Apply links, clipboard success and denied fallback, durable tailoring and automatic PDF download after reload/tab switch, recovery after a temporary PDF download failure, version revalidation, category boundary and counts, independent pagination, no percentages or diagnostics, history and preferences, offline/reconnect, mobile layout, zero-good fallback, browser isolation.');
 
 } catch (error) { console.error(logs); throw error; }
 finally {

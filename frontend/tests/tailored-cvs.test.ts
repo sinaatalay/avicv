@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { TailoredCv } from '../src/lib/contracts.ts';
-import { createTailorManager, type TailorStates } from '../src/lib/tailored-cvs.ts';
+import { createTailorManager, downloadPdf, type TailorStates } from '../src/lib/tailored-cvs.ts';
 import { forgetResume, type StorageLike } from '../src/lib/resume-history.ts';
 import { readTailorHistory, saveTailorReference, TAILOR_HISTORY_KEY } from '../src/lib/tailor-history.ts';
 import { tailoredPdfResponse, tailoredStatusResponse } from '../src/lib/server/tailored-response.ts';
@@ -23,6 +23,116 @@ const settle = async (condition: () => boolean) => {
 };
 
 describe('tailored CV persistence and lifecycle', () => {
+	test('a status request that never responds releases the busy button after bounded retries', async () => {
+		const storage = new MemoryStorage(); saveTailorReference(reference(), storage);
+		let state: TailorStates = {}; const requests: AbortSignal[] = [];
+		const manager = createTailorManager(resumeId, (next) => state = next, {
+			storage, requestTimeoutMs: 5, wait: async () => {},
+			fetcher: (async (_input, init) => {
+				const signal = init!.signal as AbortSignal; requests.push(signal);
+				return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+			}) as typeof fetch
+		});
+		manager.restore(); await settle(() => state['job-1']?.busy === false);
+		expect(requests).toHaveLength(3);
+		expect(requests.every((signal) => signal.aborted)).toBe(true);
+		expect(state['job-1'].error).toContain('Try again');
+		expect(readTailorHistory(storage)[0].downloadPending).toBe(true);
+		manager.dispose();
+	});
+
+	test('an unfinished response body also times out instead of leaving the create button busy', async () => {
+		let state: TailorStates = {};
+		const manager = createTailorManager(resumeId, (next) => state = next, {
+			storage: new MemoryStorage(), requestTimeoutMs: 5,
+			fetcher: (async (_input, init) => new Response(new ReadableStream({ start(controller) {
+				controller.enqueue(new TextEncoder().encode('{"id":'));
+				init!.signal!.addEventListener('abort', () => controller.error(init!.signal!.reason), { once: true });
+			} }), { headers: { 'content-type': 'application/json' } })) as typeof fetch
+		});
+		await manager.request('job-1');
+		expect(state['job-1'].busy).toBe(false);
+		expect(state['job-1'].error).toContain('Try again');
+		manager.dispose();
+	});
+
+	test('a stalled discovery request does not prevent the next refresh from finding completed work', async () => {
+		let state: TailorStates = {}; let requests = 0;
+		const manager = createTailorManager(resumeId, (next) => state = next, {
+			storage: new MemoryStorage(), requestTimeoutMs: 5,
+			fetcher: (async (_input, init) => {
+				if (++requests === 1) return new Promise((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true }));
+				return Response.json({ items: [{ ...artifact(), job_key: 'job-1', created_at: '2026-01-01', updated_at: '2026-01-01' }], offset: 0, limit: 100, has_more: false });
+			}) as typeof fetch
+		});
+		await manager.refresh(); await manager.refresh();
+		expect(requests).toBe(2);
+		expect(state['job-1'].artifact?.status).toBe('ready');
+		manager.dispose();
+	});
+
+	test('an incomplete PDF response times out before browser download dispatch', async () => {
+		const controller = new AbortController();
+		const fetcher = (async (_input, init) => new Response(new ReadableStream({ start(body) {
+			body.enqueue(new TextEncoder().encode('%PDF-1.4'));
+			init!.signal!.addEventListener('abort', () => body.error(init!.signal!.reason), { once: true });
+		} }), { headers: { 'content-type': 'application/pdf' } })) as typeof fetch;
+		await expect(downloadPdf('/private-cv.pdf', controller.signal, fetcher, 5)).rejects.toThrow('Request timed out');
+		expect(controller.signal.aborted).toBe(false);
+	});
+
+	test('recovers an already requested download when polling fails but discovery later sees it ready', async () => {
+		const storage = new MemoryStorage(); saveTailorReference(reference(), storage);
+		let state: TailorStates = {}; let online = false; let downloads = 0; let posts = 0;
+		const manager = createTailorManager(resumeId, (next) => state = next, {
+			storage, wait: async () => {},
+			fetcher: (async (input, init) => {
+				if (init?.method === 'POST') posts++;
+				if (!online) throw new Error('Connection interrupted');
+				return String(input).includes('?offset=')
+					? Response.json({ items: [{ ...artifact(), job_key: 'job-1', created_at: '2026-01-01', updated_at: '2026-01-01' }], offset: 0, limit: 100, has_more: false })
+					: Response.json(artifact());
+			}) as typeof fetch,
+			download: async () => { downloads++; }
+		});
+		manager.restore(); await settle(() => state['job-1']?.busy === false);
+		expect(state['job-1'].error).toContain('reach');
+		expect(readTailorHistory(storage)[0].downloadPending).toBe(true);
+		online = true;
+		await manager.refresh(); await settle(() => state['job-1']?.busy === false);
+		expect(downloads).toBe(1);
+		expect(posts).toBe(0);
+		expect(readTailorHistory(storage)[0].downloadPending).toBe(false);
+		await manager.refresh();
+		expect(downloads).toBe(1);
+		manager.dispose();
+	});
+
+	test('an older discovery response cannot replace a newer completed browser request', async () => {
+		const storage = new MemoryStorage(); let state: TailorStates = {};
+		let resolveList!: (response: Response) => void;
+		const nextId = 'd'.repeat(32); const polled: string[] = [];
+		const manager = createTailorManager(resumeId, (next) => state = next, {
+			storage, download: async () => {},
+			fetcher: (async (input, init) => {
+				if (String(input).includes('?offset=')) return new Promise<Response>((resolve) => resolveList = resolve);
+				if (init?.method === 'POST') return Response.json({ ...artifact(), id: nextId });
+				polled.push(String(input));
+				return Response.json(artifact('rendering'));
+			}) as typeof fetch
+		});
+		const refresh = manager.refresh();
+		await manager.request('job-1');
+		resolveList(Response.json({ items: [{ ...artifact('rendering'), job_key: 'job-1', created_at: '2026-01-01', updated_at: '2026-01-01' }], offset: 0, limit: 100, has_more: false }));
+		await refresh;
+		const finalState = state['job-1']; const saved = readTailorHistory(storage)[0];
+		manager.dispose();
+		expect(finalState.artifact?.id).toBe(nextId);
+		expect(finalState.busy).toBe(false);
+		expect(saved.artifactId).toBe(nextId);
+		expect(polled).toEqual([]);
+	});
+
 	test('discovers agent-created PDFs across pages without downloading until the user asks', async () => {
 		const storage = new MemoryStorage(); let state: TailorStates = {}; const downloads: string[] = [];
 		const oldId = 'd'.repeat(32);

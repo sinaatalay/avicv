@@ -164,6 +164,12 @@ async def run_artifact_claim(settings: Settings, claim: ArtifactClaim) -> None:
             finished, _ = await asyncio.wait(
                 [processing, renewal], return_when=asyncio.FIRST_COMPLETED
             )
+            # A child may cancel itself (for example, an interrupted provider
+            # operation). That is a failed attempt, not cancellation of this
+            # long-lived worker. Propagating its CancelledError would silently
+            # stop the lane until the API process restarted.
+            if any(task.cancelled() for task in finished):
+                raise RuntimeError("An artifact operation was unexpectedly cancelled")
             if renewal in finished:
                 await renewal
             retry_after = await processing

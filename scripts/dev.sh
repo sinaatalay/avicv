@@ -109,12 +109,12 @@ say "installing dependencies"
 bun install >/dev/null
 uv sync --quiet
 
-start web "$cyan" env API_URL="http://127.0.0.1:$api_port" AGENT_URL="http://127.0.0.1:$agent_port" \
+start web "$cyan" env APP_ORIGIN="$app_origin" API_URL="http://127.0.0.1:$api_port" AGENT_URL="http://127.0.0.1:$agent_port" \
 	bun --cwd=frontend run dev --port "$web_port" --strictPort
 start api "$magenta" env APP_ORIGIN="$app_origin" uv run --directory backend fastapi dev --port "$api_port"
 agent_env=()
-[ ! -f backend/.env ] || agent_env+=(--env-file "$root/backend/.env")
-[ ! -f agent/.env ] || agent_env+=(--env-file "$root/agent/.env")
+[ ! -f backend/.env ] || agent_env+=(--env-file="$root/backend/.env")
+[ ! -f agent/.env ] || agent_env+=(--env-file="$root/agent/.env")
 start chat "$cyan" env APP_ORIGIN="$app_origin" API_URL="http://127.0.0.1:$api_port" PORT="$agent_port" \
 	bun "${agent_env[@]}" --cwd=agent run dev
 start jobs "$yellow" uv run --directory backend jobs-ingest --loop

@@ -263,7 +263,7 @@ async def tailor_resume(
             model_settings=OpenRouterModelSettings(
                 temperature=0,
                 max_tokens=12000,
-                openrouter_reasoning={"effort": "medium"},
+                openrouter_reasoning={"effort": "low"},
             ),
         )
         cost += request_cost(draft)
